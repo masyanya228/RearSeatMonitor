@@ -1,4 +1,5 @@
-// библиотека для эмуляции Serial порта
+bool isDebug=true;
+
 #include <SoftwareSerial.h>
 // создаём объект mySerial и передаём номера управляющих пинов RX и TX
 // RX - цифровой вывод 8, необходимо соединить с выводом TX дисплея
@@ -11,20 +12,24 @@ int disPacket[8];
 int QueueOfRequestsLen=0;
 int QueueOfRequests[10];
 
-struct Module{
-  int id=0;
+struct Button{
+  byte id=0;
   String objName="";
   String friendlyName="";
-  int mode=0;
-  int modeSeq[4];
-  int modePic[4];
+  byte mode=0;
+  byte modePic[4];
+  byte type;
+  byte seat;
 };
 
-Module mods[4];
+Button btns[4];
 
 
 #include <Wire.h>
-#define SLAVE_ADDR 10
+#define MASSAGE_ADDR 10
+#define VENTILATION_ADDR 20
+#define HEAT_ADDR 30
+
 #define REG_L_MODE 0x01
 #define REG_L_GetStatus 0x02
 #define REG_R_MODE 0x03
@@ -32,55 +37,48 @@ Module mods[4];
 #define REG_GetErrorCount 0x05
 #define REG_GetNextError 0x06
 
+#define MasType 0; //seat massage
+#define VentType 1; //seat ventilation
+#define HeatType 2; //seat heater
+int ModuleLen=3;
+struct Module{
+  byte type=0;
+  int addr=0;
+  String friendlyName="";
+  bool isOnline=false;
+};
+Module mods[3];
+uint32_t lastMessage=0;
+
+struct Error{
+  uint16_t code=0;
+  uint32_t tfs=0;
+  uint8_t times=0;
+  uint8_t addr=0;
+  uint32_t tfsr=0;
+};
+Error errors[15];
+int sizeErr;
+int nextError=0;
+
 void setup() {
-  mods[0]={};
-  mods[0].id=7;
-  mods[0].objName="v1";
-  mods[0].friendlyName="Ventilation left";
-  mods[0].modeSeq[0]=0;
-  mods[0].modeSeq[1]=2;
-  mods[0].modeSeq[2]=1;
-  mods[0].modePic[0]=21;
-  mods[0].modePic[1]=22;
-  mods[0].modePic[2]=23;
-
-  mods[1]={};
-  mods[1].id=2;
-  mods[1].objName="v2";
-  mods[1].friendlyName="Ventilation right";
-  mods[1].modeSeq[0]=0;
-  mods[1].modeSeq[1]=2;
-  mods[1].modeSeq[2]=1;
-  mods[1].modePic[0]=3;
-  mods[1].modePic[1]=4;
-  mods[1].modePic[2]=5;
-
-  mods[2]={};
-  mods[2].id=6;
-  mods[2].objName="m1";
-  mods[2].friendlyName="Massage left";
-  mods[2].modeSeq[0]=0;
-  mods[2].modeSeq[1]=1;
-  mods[2].modeSeq[2]=2;
-  mods[2].modeSeq[3]=3;
-  mods[2].modePic[0]=17;
-  mods[2].modePic[1]=18;
-  mods[2].modePic[2]=19;
-  mods[2].modePic[3]=20;
-   
-   // открываем последовательный порт
+  sizeErr=sizeof(errors[0]);
+  SetupBtns();
+  SetupMods();
+  
   mySerial.begin(9600);
   mySerial.setTimeout(50);
   Serial.begin(9600);
   Serial.println("Hello!");
   Wire.begin();
-  Wire.setWireTimeout(25000, false);
+  Wire.setWireTimeout(250000, false);
   pinMode(LED_BUILTIN, OUTPUT);
+  ScanModules();
 }
 
 int endcombyte=0;
 void loop() {
-  if (mySerial.available()) {  
+  if(mySerial.available()){ 
     byte inc = mySerial.read();
     Serial.println(inc);
     disPacket[disPacketPointer]=inc;
@@ -102,6 +100,24 @@ void loop() {
       endcombyte=0;
       ToDo(disPacket, disPacketPointer);
       disPacketPointer=0;
+    }
+  }
+  HealthReport();
+}
+
+bool HealthReport(){
+  if(millis()-lastMessage>=10000){
+    lastMessage=millis();
+    for(int i=0; i<ModuleLen; i++){
+      if(!mods[i].isOnline)
+        continue;
+      if(HasErrors(i)){
+        while(GetNextError(mods[i].addr)){
+          nextError++;
+          if(nextError>20) break;
+        }
+        nextError=0;
+      }
     }
   }
 }
@@ -139,49 +155,27 @@ void ToDo(int data[], int len){
 
 void TouchPressEvent(int page, int id){
   Serial.print("Нажата кнопка: ");
-  Serial.println(id);
-  
-  if(id==7)
-  {
-    //v1
-    //ReqPic(id);
-    int newMode=NextMode(0);
-    Module& mod=GetMod(id);
-    mod.mode = newMode;
-    SendInt("pageSofa.v1.pic", mods[0].modePic[newMode]);
-  }
-  if(id==2)
-  {
-    //v2
-    ReqPic(id);
-  }
-  if(id==6)
-  {
-    //m1
-    ReqPic(id);
-  }
-  if(id==3)
-  {
-    //m2
-  }
-}
+  Serial.print(id);
 
+  Button& btn=GetBtn(id);
+  Module& mod=GetModule(btn.type);
+  Serial.println(btn.friendlyName);
+  int newMode=NextMode(mod.addr, btn.seat);
+  btn.mode = newMode;
+  DisplaySetVal("pageSofa."+btn.objName+".pic", btn.modePic[newMode]);
+}
 
 void TouchReleaseEvent(int page, int id){
 
 }
 
-void SetPic(int id, int curPic){
-  Module& mod=GetMod(id);
-  mod.mode = GetCurMode(mod, curPic);
-  mod.mode = GetNextMode(mod);
-  mySerial.print("pageSofa."+(mod.objName)+".pic=");
-  mySerial.print(mod.modePic[mod.mode]);
-  comandEnd();
+void SetPic(int id, int mode){
+  Button& mod=GetBtn(id);
+  DisplaySetVal("pageSofa."+(mod.objName)+".pic", mod.modePic[mode]);
 }
 
 void ReqPic(int id){
-  Module& mod=GetMod(id);
+  Button& mod=GetBtn(id);
   Serial.println(mod.objName);
   mySerial.print("get pageSofa."+(mod.objName)+".pic");
   comandEnd();
@@ -189,48 +183,33 @@ void ReqPic(int id){
   QueueOfRequestsLen++;
 }
 
-Module& GetMod(int id){
+Button& GetBtn(int id){
+  int len=4;
+  while(len>0)
+  {
+    len--;
+    if(btns[len].id==id)
+      return btns[len];
+  }
+  Serial.println("out of array");
+}
+
+Module& GetModule(int type){
   int len=3;
   while(len>0)
   {
     len--;
-    if(mods[len].id==id)
+    if(mods[len].type==type)
       return mods[len];
   }
   Serial.println("out of array");
 }
 
-int GetCurMode(Module& mod, int curPic){
-  int i=0;
-  while(i<4)
-  {
-    if(mod.modePic[i]==curPic)
-    {
-      break;
-    }
-    i++;
-  }
-  if(i>=4){
-    Serial.println("out of array");
-    return -1;
-  }
-  return i;
-}
-
-int GetNextMode(Module& mod){
-  int i=0;
-  while(i<4)
-  {
-    if(mod.modeSeq[i]==mod.mode)
-    {
-      i++;
-      break;
-    }
-    i++;
-  }
-  if(i>=4)
-    i=0;
-  return mod.modeSeq[i];
+void DisplaySetVal(String path, int val){
+  mySerial.print(path);   // Отправляем данные dev(номер экрана, название переменной) на Nextion
+  mySerial.print("=");   // Отправляем данные =(знак равно, далее передаем сами данные) на Nextion 
+  mySerial.print(val);  // Отправляем данные data(данные) на Nextion
+  comandEnd();
 }
 
 // функция отправки конца команды «0xFF 0xFF 0xFF»
@@ -240,25 +219,140 @@ void comandEnd() {
   }
 }
 
-void SendInt(String path, int val){
-  mySerial.print(path);   // Отправляем данные dev(номер экрана, название переменной) на Nextion
-  mySerial.print("=");   // Отправляем данные =(знак равно, далее передаем сами данные) на Nextion 
-  mySerial.print(val);  // Отправляем данные data(данные) на Nextion
-  comandEnd();
+int NextMode(int addr, int seat) {
+  Wire.beginTransmission(addr);
+  Wire.write(seat==0 ? REG_L_MODE : REG_R_MODE);
+  Wire.endTransmission(false);
+  Wire.requestFrom(addr, 1);
+  return Wire.read();
 }
 
-int NextMode(int seat) {
-    Wire.beginTransmission(SLAVE_ADDR);
-    Wire.write(seat==0 ? REG_L_MODE : REG_R_MODE);
-    Wire.endTransmission(false);
-    Wire.requestFrom(SLAVE_ADDR, 1);
-    return Wire.read();
+int GetStatus(int addr, int seat) {
+  Wire.beginTransmission(addr);
+  Wire.write(seat==0 ? REG_L_GetStatus : REG_R_GetStatus);
+  Wire.endTransmission(false);
+  Wire.requestFrom(addr, 1);
+  return Wire.read();
 }
 
-int GetStatus(int seat) {
-    Wire.beginTransmission(SLAVE_ADDR);
-    Wire.write(seat==0 ? REG_L_GetStatus : REG_R_GetStatus);
-    Wire.endTransmission(false);
-    Wire.requestFrom(SLAVE_ADDR, 1);
-    return Wire.read();
+bool HasErrors(int i){
+  Wire.beginTransmission(mods[i].addr);
+  Wire.write(REG_GetErrorCount);
+  Wire.endTransmission(false);
+  Wire.requestFrom(mods[i].addr, 5);
+  uint32_t now=0;
+  uint8_t numOfErrors=0;
+  I2C_readAnything(numOfErrors);
+  I2C_readAnything(now);
+
+  if(numOfErrors==255){
+    SaveError(4+i);
+    return false;
+  }
+  return numOfErrors>0;
+}
+
+bool GetNextError(int addr){
+  Wire.beginTransmission(addr);
+  Wire.write(REG_GetNextError);
+  Wire.write(nextError);
+  Wire.endTransmission(false);
+  Wire.requestFrom(addr, 8);
+  if(Wire.read()==0) return false;
+
+  uint16_t code=0;
+  uint32_t tfs=0;
+  uint8_t times=0;
+  I2C_readAnything(code);
+  I2C_readAnything(tfs);
+  I2C_readAnything(times);
+  
+  SaveRemoteError(code, tfs, times, addr);
+  return true;
+}
+
+void ScanModules(){
+  for (int i=0; i<3; i++) {
+    Wire.beginTransmission(mods[i].addr);
+    if (Wire.endTransmission()) {
+      mods[i].isOnline=false;
+      SaveError(i+1);
+    } else {
+      mods[i].isOnline=true;
+    }
+  }
+}
+
+void SetupBtns(){
+  btns[0]={};
+  btns[0].id=7;
+  btns[0].objName="v1";
+  btns[0].friendlyName="Ventilation left";
+  btns[0].modePic[0]=29;
+  btns[0].modePic[1]=30;
+  btns[0].modePic[2]=31;
+  btns[0].modePic[3]=32;
+  btns[0].type=VentType;
+  btns[0].seat=0;
+
+  btns[1]={};
+  btns[1].id=2;
+  btns[1].objName="v2";
+  btns[1].friendlyName="Ventilation right";
+  btns[1].modePic[0]=33;
+  btns[1].modePic[1]=34;
+  btns[1].modePic[2]=35;
+  btns[1].modePic[3]=36;
+  btns[1].type=VentType;
+  btns[1].seat=1;
+
+  btns[2]={};
+  btns[2].id=6;
+  btns[2].objName="m1";
+  btns[2].friendlyName="Massage left";
+  btns[2].modePic[0]=17;
+  btns[2].modePic[1]=18;
+  btns[2].modePic[2]=19;
+  btns[2].modePic[3]=20;
+  btns[2].type=MasType;
+  btns[2].seat=0;
+
+  btns[3]={};
+  btns[3].id=3;
+  btns[3].objName="m2";
+  btns[3].friendlyName="Massage right";
+  btns[3].modePic[0]=6;
+  btns[3].modePic[1]=7;
+  btns[3].modePic[2]=8;
+  btns[3].modePic[3]=9;
+  btns[3].type=MasType;
+  btns[3].seat=1;
+}
+
+void SetupMods(){
+  mods[0].type=MasType;
+  mods[0].addr=MASSAGE_ADDR;
+  mods[0].friendlyName="Пневмомассаж спинки";
+
+  mods[1].type=VentType;
+  mods[1].addr=VENTILATION_ADDR;
+  mods[1].friendlyName="Вентиляция дивана";
+
+  mods[2].type=HeatType;
+  mods[2].addr=HEAT_ADDR;
+  mods[2].friendlyName="Обогрев дивана";
+}
+
+void logS(String str){
+  if(!isDebug)
+    return;
+  Serial.println(str);
+}
+
+void logI(String str, int i){
+  if(!isDebug)
+    return;
+  Serial.print(str);
+  Serial.print(" : ");
+  Serial.println(i);
 }
