@@ -328,6 +328,28 @@ void SetupBtns(){
   btns[3].modePic[3]=9;
   btns[3].type=MasType;
   btns[3].seat=1;
+
+  btns[4]={};
+  btns[4].id=8;
+  btns[4].objName="h1";
+  btns[4].friendlyName="Heat left";
+  btns[4].modePic[0]=14;
+  btns[4].modePic[1]=15;
+  btns[4].modePic[2]=16;
+  btns[4].modePic[3]=0;
+  btns[4].type=HeatType;
+  btns[4].seat=0;
+
+  btns[5]={};
+  btns[5].id=1;
+  btns[5].objName="h2";
+  btns[5].friendlyName="Heat right";
+  btns[5].modePic[0]=0;
+  btns[5].modePic[1]=1;
+  btns[5].modePic[2]=2;
+  btns[5].modePic[3]=0;
+  btns[5].type=HeatType;
+  btns[5].seat=0;
 }
 
 void SetupMods(){
