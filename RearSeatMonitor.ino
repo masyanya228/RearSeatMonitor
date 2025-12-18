@@ -1,31 +1,8 @@
 bool isDebug=true;
 
 #include <SoftwareSerial.h>
-// создаём объект mySerial и передаём номера управляющих пинов RX и TX
-// RX - цифровой вывод 8, необходимо соединить с выводом TX дисплея
-// TX - цифровой вывод 9, необходимо соединить с выводом RX дисплея
-SoftwareSerial mySerial(8, 9);
-int num=0;
-int disPacketPointer=0;
-int disPacket[8];
-
-int QueueOfRequestsLen=0;
-int QueueOfRequests[10];
-
-struct Button{
-  byte id=0;
-  String objName="";
-  String friendlyName="";
-  byte mode=0;
-  byte modePic[4];
-  byte type;
-  byte seat;
-};
-
-Button btns[4];
-
-
 #include <Wire.h>
+
 #define MASSAGE_ADDR 10
 #define VENTILATION_ADDR 20
 #define HEAT_ADDR 30
@@ -40,7 +17,8 @@ Button btns[4];
 #define MasType 0; //seat massage
 #define VentType 1; //seat ventilation
 #define HeatType 2; //seat heater
-int ModuleLen=3;
+
+// Модули на шине I2C
 struct Module{
   byte type=0;
   int addr=0;
@@ -48,8 +26,31 @@ struct Module{
   bool isOnline=false;
 };
 Module mods[3];
+int ModuleLen=3;
+
+// serial port для связи с дисплеем
+SoftwareSerial mySerial(8, 9);
+int num=0;
+int disPacketPointer=0;
+int disPacket[8];
 uint32_t lastMessage=0;
 
+int QueueOfRequestsLen=0;
+int QueueOfRequests[10];
+
+//Кнопки на дисплее
+struct Button{
+  byte id=0;
+  String objName="";
+  String friendlyName="";
+  byte mode=0;
+  byte modePic[4];
+  byte type;
+  byte seat;
+};
+Button btns[6];
+
+//Ошибки в памяти
 struct Error{
   uint16_t code=0;
   uint32_t tfs=0;
