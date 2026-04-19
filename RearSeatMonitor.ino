@@ -6,17 +6,57 @@ bool isDebug=true;
 #define MASSAGE_ADDR 10
 #define VENTILATION_ADDR 20
 #define HEAT_ADDR 30
+#define LIGHT_ADDR 40
 
 #define REG_L_MODE 0x01
 #define REG_L_GetStatus 0x02
 #define REG_R_MODE 0x03
 #define REG_R_GetStatus 0x04
+#define REG_Power 0x10
+#define REG_SetRGB 0x11
+#define REG_SetBR 0x12
+#define REG_GetLightStatus 0x13
 #define REG_GetErrorCount 0x05
 #define REG_GetNextError 0x06
 
 #define MasType 0; //seat massage
 #define VentType 1; //seat ventilation
 #define HeatType 2; //seat heater
+#define LightType 3; //ambient light
+
+// UART команды
+#define CMD_TOUCH 101 // OnPress onRelease
+#define CMD_GET_PIC 113 //Ответ на запрос картиинки
+#define CMD_LED_POWER 1 // Вкл/выкл [1, элемент LE, 0/1] len=3
+#define CMD_LED_PALITRA 2 // Цвет с палитры [2, элемент LE, x LE, y LE] len=13
+#define CMD_LED_COLOR 3 // Цвет с пресета [3, элемент LE, RGB565 LE] len=9
+#define CMD_LED_BRIGHT 4 // Яркость [4, элемент LE, Br(0–100) LE] len=9
+#define CMD_LED_GETSTATE 5 // [4] len=1
+
+#define LED_SKY 1 //Звёзды
+#define LED_LINES 2 //Линии
+#define LED_FLOOR 3 //Стаканы
+#define LED_SKY_LINES 4 //Звёзды и линии
+#define LED_LINES_FLOOR 5 //Линии и стаканы
+#define LED_ALL 6 //Всё
+
+struct LedElement {
+  bool    on;
+  uint8_t r, g, b;
+  uint8_t bright;  // 0–100
+};
+
+struct Color{
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
+
+LedElement leds[3] = {
+  { false, 255, 255, 255, 50 },  // [0] Звёзды
+  { false, 255, 255, 255, 50 },  // [1] Линии
+  { false, 255, 255, 255, 50 },  // [2] Стаканы
+};
 
 // Модули на шине I2C
 struct Module{
@@ -25,20 +65,22 @@ struct Module{
   String friendlyName="";
   bool isOnline=false;
 };
-Module mods[3];
-int ModuleLen=3;
+
+//i2c модули
+Module mods[4];
+int ModuleLen=4;
 
 // serial port для связи с дисплеем
 SoftwareSerial mySerial(8, 9);
 int num=0;
 int disPacketPointer=0;
-int disPacket[8];
+int disPacket[20];
 uint32_t lastMessage=0;
 
 int QueueOfRequestsLen=0;
 int QueueOfRequests[10];
 
-//Кнопки на дисплее
+//Кнопки сидений на дисплее
 struct Button{
   byte id=0;
   String objName="";
@@ -127,16 +169,27 @@ void ToDo(int data[], int len){
   if(len==0)
     return;
   Serial.print("Длинна сообщения: ");
-  Serial.print(disPacketPointer);
-  Serial.print(" ");
   Serial.print(endcombyte);
   Serial.print(" ");
   Serial.println(len);
-  if(data[0]==101 && len==4){//touch
-    if(data[3]==1)
-      TouchPressEvent(data[1], data[2]);
-    else if(data[3]==0)
-      TouchReleaseEvent(data[1], data[2]);
+  switch (data[0]) {
+    case CMD_TOUCH:
+      if (len == 4) {
+        if (data[3] == 1) TouchPressEvent(data[1], data[2]);
+        else if (data[3] == 0) TouchReleaseEvent(data[1], data[2]);
+      }
+      break;
+
+    case CMD_LED_POWER: HandleLedPower(data, len);      break;
+    case CMD_LED_PALITRA: HandleLedPalitra(data, len);      break;
+    case CMD_LED_COLOR: HandleLedColor(data, len);      break;
+    case CMD_LED_BRIGHT: HandleLedBright(data, len); break;
+    //case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
+
+    default:
+      Serial.print("[WARN] Неизвестная команда: ");
+      Serial.println(data[0]);
+      break;
   }
   if(data[0]==113 && len==5){//get pic
     if(QueueOfRequestsLen<=0)
@@ -152,6 +205,89 @@ void ToDo(int data[], int len){
     QueueOfRequests[QueueOfRequestsLen]=0;
     //SetPic(reqId, data[1]);
   }
+}
+
+void HandleLedPower(int data[], int len) {
+  if (len < 9) return;
+
+  int el = data[1];
+  if (el < 0 || el > 6) return;
+  bool power = data[5] == 1;
+  if(el == LED_SKY || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_SKY].on = power;
+  }
+  if(el == LED_LINES || el == LED_LINES_FLOOR || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_LINES].on = power;
+  }
+  if(el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
+    leds[LED_FLOOR].on = power;
+  }
+  ApplyLedPower(el, power);
+}
+
+void HandleLedPalitra(int data[], int len) {
+  if (len != 13) return;
+
+  int el = data[1];
+  if (el < 0 || el > 6) return;
+  uint16_t x = (uint16_t)(data[5] | (data[6] << 8));
+  uint16_t y = (uint16_t)(data[9] | (data[10] << 8));
+  Color rgb = HsvToRgb(x, y);
+  if (el == LED_SKY || el == LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_SKY].r = rgb.r; leds[LED_SKY].g = rgb.g; leds[LED_SKY].b = rgb.b;
+  }
+  if (el == LED_LINES || el == LED_LINES_FLOOR || el == LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_LINES].r = rgb.r; leds[LED_LINES].g = rgb.g; leds[LED_LINES].b = rgb.b;
+  }
+  if (el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
+    leds[LED_FLOOR].r = rgb.r; leds[LED_FLOOR].g = rgb.g; leds[LED_FLOOR].b = rgb.b;
+  }
+  ApplyLedColor(el, rgb);
+}
+
+void HandleLedColor(int data[], int len) {
+  if (len != 9) return;
+
+  int el = data[1];
+  if (el < 0 || el > 6) return;
+  uint16_t rgb565 = (uint16_t)(data[5] | (data[6] << 8));
+  Color rgb = Rgb565ToRgb(rgb565);
+  if(el == LED_SKY || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_SKY].r = rgb.r;
+    leds[LED_SKY].g = rgb.g;
+    leds[LED_SKY].b = rgb.b;
+  }
+  if(el == LED_LINES || el == LED_LINES_FLOOR || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_LINES].r = rgb.r;
+    leds[LED_LINES].g = rgb.g;
+    leds[LED_LINES].b = rgb.b;
+  }
+  if(el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
+    leds[LED_FLOOR].r = rgb.r;
+    leds[LED_FLOOR].g = rgb.g;
+    leds[LED_FLOOR].b = rgb.b;
+  }
+  ApplyLedColor(el, rgb);
+}
+
+void HandleLedBright(int data[], int len) {
+  if (len < 9) return;
+  
+  int el    = data[1];        // байт элемента
+  int value = data[5];        // первый байт из 4-байтного int
+  
+  if (el < 0 || el > 6)     return;
+  if (value < 0 || value > 100) return;
+  if(el == LED_SKY || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_SKY].bright = value;
+  }
+  if(el == LED_LINES || el == LED_LINES_FLOOR || el==LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_LINES].bright = value;
+  }
+  if(el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
+    leds[LED_FLOOR].bright = value;
+  }
+  ApplyLedBright(el, value);
 }
 
 void TouchPressEvent(int page, int id){
@@ -183,6 +319,63 @@ void ReqPic(int id){
   QueueOfRequests[QueueOfRequestsLen]=id;
   QueueOfRequestsLen++;
 }
+
+Color HsvToRgb(uint16_t x, uint16_t y) {
+  x=x-60;
+  y=y-50;
+  // x: 0..184  → Hue 0..359
+  // y: 0..184  → Saturation 0.0 .. 1.0 (сверху белый, снизу яркий цвет)
+
+  float hue = (float)x * 360.0 / 184.0;   // переводим в градусы
+  float sat = (float)y / 184.0;           // 0.0 = белый, 1.0 = чистый цвет
+  float val = 1.0;                        // всегда максимальная яркость
+
+  // Стандартное преобразование HSV → RGB (0..255)
+  float c = val * sat;
+  float x_ = c * (1.0 - fabs(fmod(hue / 60.0, 2.0) - 1.0));
+  float m = val - c;
+
+  float r = 0, g = 0, b = 0;
+
+  if      (hue < 60)  { r = c; g = x_; b = 0; }
+  else if (hue < 120) { r = x_; g = c; b = 0; }
+  else if (hue < 180) { r = 0; g = c; b = x_; }
+  else if (hue < 240) { r = 0; g = x_; b = c; }
+  else if (hue < 300) { r = x_; g = 0; b = c; }
+  else                { r = c; g = 0; b = x_; }
+
+  r = (r + m) * 255.0;
+  g = (g + m) * 255.0;
+  b = (b + m) * 255.0;
+  Color rgb = {r, g, b};
+  return rgb;
+}
+
+uint16_t RgbToRgb565(Color rgb)
+{
+  // Преобразование в 16-бит RGB565 (Nextion формат)
+  uint8_t r5 = (uint8_t)rgb.r >> 3;   // 5 бит
+  uint8_t g6 = (uint8_t)rgb.g >> 2;   // 6 бит
+  uint8_t b5 = (uint8_t)rgb.b >> 3;   // 5 бит
+  return (r5 << 11) | (g6 << 5) | b5;
+}
+
+Color Rgb565ToRgb(uint16_t rgb565)
+{
+  uint8_t r = (rgb565 >> 11) & 0x1F;
+  uint8_t g = (rgb565 >> 5)  & 0x3F;
+  uint8_t b =  rgb565        & 0x1F;
+  r = (r * 255) / 31;
+  g = (g * 255) / 63;
+  b = (b * 255) / 31;
+  Color rgb = {(uint8_t)r, (uint8_t)g, (uint8_t)b};
+  return rgb;
+}
+
+
+
+
+
 
 Button& GetBtn(int id){
   int len=4;
@@ -226,6 +419,32 @@ int NextMode(int addr, int seat) {
   Wire.endTransmission(false);
   Wire.requestFrom(addr, 1);
   return Wire.read();
+}
+
+void ApplyLedPower(int el, bool power) {
+  Wire.beginTransmission(LIGHT_ADDR);
+  Wire.write(REG_Power);
+  Wire.write((uint8_t)el);
+  Wire.write(power ? 1 : 0);
+  Wire.endTransmission();
+}
+
+void ApplyLedColor(int el, Color rgb) {
+  Wire.beginTransmission(LIGHT_ADDR);
+  Wire.write(REG_SetRGB);
+  Wire.write((uint8_t)el);
+  Wire.write(rgb.r);
+  Wire.write(rgb.g);
+  Wire.write(rgb.b);
+  Wire.endTransmission();
+}
+
+void ApplyLedBright(int el, uint8_t br) {
+  Wire.beginTransmission(LIGHT_ADDR);
+  Wire.write(REG_SetBR);
+  Wire.write((uint8_t)el);
+  Wire.write(br);
+  Wire.endTransmission();
 }
 
 int GetStatus(int addr, int seat) {
@@ -273,7 +492,7 @@ bool GetNextError(int addr){
 }
 
 void ScanModules(){
-  for (int i=0; i<3; i++) {
+  for (int i=0; i<ModuleLen; i++) {
     Wire.beginTransmission(mods[i].addr);
     if (Wire.endTransmission()) {
       mods[i].isOnline=false;
@@ -364,6 +583,10 @@ void SetupMods(){
   mods[2].type=HeatType;
   mods[2].addr=HEAT_ADDR;
   mods[2].friendlyName="Обогрев дивана";
+
+  mods[3].type=LightType;
+  mods[3].addr=LIGHT_ADDR;
+  mods[3].friendlyName="Атмосферная подсветка";
 }
 
 void logS(String str){
