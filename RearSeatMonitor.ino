@@ -27,11 +27,13 @@ bool isDebug=true;
 // UART команды
 #define CMD_TOUCH 101 // OnPress onRelease
 #define CMD_GET_PIC 113 //Ответ на запрос картиинки
-#define CMD_LED_POWER 1 // Вкл/выкл [1, элемент LE, 0/1] len=3
+#define CMD_LED_POWER 1 // Вкл/выкл [1, элемент LE, 0/1 LE] len=9
 #define CMD_LED_PALITRA 2 // Цвет с палитры [2, элемент LE, x LE, y LE] len=13
 #define CMD_LED_COLOR 3 // Цвет с пресета [3, элемент LE, RGB565 LE] len=9
 #define CMD_LED_BRIGHT 4 // Яркость [4, элемент LE, Br(0–100) LE] len=9
-#define CMD_LED_GETSTATE 5 // [4] len=1
+#define CMD_LED_GETSTATE 5 // [5] len=1
+#define CMD_GET_ERRORS 6 // [6][page 0..n LE] len=5
+#define CMD_CLEAR_ERRORS 7 // [7] len=1
 
 #define LED_SKY 1 //Звёзды
 #define LED_LINES 2 //Линии
@@ -94,18 +96,42 @@ Button btns[6];
 
 //Ошибки в памяти
 struct Error{
-  uint16_t code=0;
+  uint8_t code=0;
   uint32_t tfs=0;
   uint8_t times=0;
   uint8_t addr=0;
-  uint32_t tfsr=0;
 };
 Error errors[15];
 int sizeErr;
+int errLen;
 int nextError=0;
 
+struct ErrorDesc {
+    uint8_t code;
+    const char* description;
+};
+
+const ErrorDesc errorDescriptions[] PROGMEM = {
+    {11,   "Massage didnt response"},
+    {21,   "Vent didnt response"},
+    {31,   "Heat didnt response"},
+    {41,   "BLE commander didnt response"},
+    {12,  "Communication timeout"},
+    {15,  "Calibration failed"},
+    {20,  "Invalid data"},
+    {25,  "Slave module offline"},
+    {30,  "EEPROM write error"},
+    {45,  "ADC reading error"},
+    {50,  "Fan failure"},
+    {60,  "Current overload"},
+    {75,  "Temperature sensor fail"},
+    {100, "Unknown peripheral"},
+    {120, "System reset required"},
+    {0,   ""}   // terminator (обязательно в конце!)
+};
+
 void setup() {
-  sizeErr=sizeof(errors[0]);
+  InitEEPROM();
   SetupBtns();
   SetupMods();
   
@@ -185,7 +211,8 @@ void ToDo(int data[], int len){
     case CMD_LED_COLOR: HandleLedColor(data, len);      break;
     case CMD_LED_BRIGHT: HandleLedBright(data, len); break;
     //case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
-
+    case CMD_GET_ERRORS: HandleGetErrors(data, len); break;
+    case CMD_CLEAR_ERRORS: HandleClearErrors(data, len); break;
     default:
       Serial.print("[WARN] Неизвестная команда: ");
       Serial.println(data[0]);
@@ -288,6 +315,57 @@ void HandleLedBright(int data[], int len) {
     leds[LED_FLOOR].bright = value;
   }
   ApplyLedBright(el, value);
+}
+
+void HandleGetErrors(int data[], int len){
+  if (len < 5) return;
+  int page = data[1];
+  const int limit = 8;                    // например, по 5 ошибок на "страницу"
+  Error pageErrors[limit];                // временный массив для текущей страницы
+  int count = GetErrors(page, limit, pageErrors);
+  String payload = "";                    // сюда собираем все ошибки
+
+    for (int i = 0; i < count; i++)
+    {
+        uint32_t minutesAgo = 0;
+        if (pageErrors[i].tfs > 0) {
+            minutesAgo = (millis() - pageErrors[i].tfs) / 60000UL;   // минуты назад
+        }
+
+        uint8_t code = pageErrors[i].code;
+        const char* desc = GetErrorDescription(pageErrors[i].code);
+        String line = String(pageErrors[i].code) + "|" +
+                      String(pageErrors[i].addr) + "|" +
+                      String(pageErrors[i].times) + "|" +
+                      String(minutesAgo) + "|" +
+                      desc;
+
+        if (i > 0) payload += "\r";
+        payload += line;
+    }
+    if (count == 0) {
+        payload = "0|0|0|0|No errors on this page";
+    }
+    DisplaySetVal("pageHR.t1.txt", payload);
+}
+
+const char* GetErrorDescription(uint8_t code)
+{
+    for (int i = 0; ; i++) {
+        uint8_t storedCode = pgm_read_word(&errorDescriptions[i].code);
+        if (storedCode == 0) break;                    // конец списка
+
+        if (storedCode == code) {
+            return (const char*)pgm_read_word(&errorDescriptions[i].description);
+        }
+    }
+    return "Unknown error";
+}
+
+void HandleClearErrors(int data[], int len){
+  if (len < 1) return;
+  //Delete all errors from RAM and EEPROM
+  DisplaySetVal("pageHR.t1.txt", "");
 }
 
 void TouchPressEvent(int page, int id){
@@ -400,9 +478,16 @@ Module& GetModule(int type){
 }
 
 void DisplaySetVal(String path, int val){
-  mySerial.print(path);   // Отправляем данные dev(номер экрана, название переменной) на Nextion
-  mySerial.print("=");   // Отправляем данные =(знак равно, далее передаем сами данные) на Nextion 
-  mySerial.print(val);  // Отправляем данные data(данные) на Nextion
+  mySerial.print(path);
+  mySerial.print("="); 
+  mySerial.print(val);
+  comandEnd();
+}
+
+void DisplaySetVal(String path, String val){
+  mySerial.print(path);
+  mySerial.print("="); 
+  mySerial.print(val);
   comandEnd();
 }
 
@@ -465,10 +550,10 @@ bool HasErrors(int i){
   I2C_readAnything(numOfErrors);
   I2C_readAnything(now);
 
-  if(numOfErrors==255){
-    SaveError(4+i);
-    return false;
-  }
+  // if(numOfErrors==255){
+  //   SaveError(4+i);
+  //   return false;
+  // }
   return numOfErrors>0;
 }
 
@@ -480,14 +565,14 @@ bool GetNextError(int addr){
   Wire.requestFrom(addr, 8);
   if(Wire.read()==0) return false;
 
-  uint16_t code=0;
+  uint8_t code=0;
   uint32_t tfs=0;
   uint8_t times=0;
   I2C_readAnything(code);
   I2C_readAnything(tfs);
   I2C_readAnything(times);
   
-  SaveRemoteError(code, tfs, times, addr);
+  SaveError(code, tfs, addr, times);
   return true;
 }
 
