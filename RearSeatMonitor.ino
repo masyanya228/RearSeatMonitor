@@ -2,22 +2,9 @@ bool isDebug=true;
 
 #include <SoftwareSerial.h>
 #include <Wire.h>
+#include "I2CMaster.h"
+I2CMaster master;
 
-#define MASSAGE_ADDR 10
-#define VENTILATION_ADDR 20
-#define HEAT_ADDR 30
-#define LIGHT_ADDR 40
-
-#define REG_L_MODE 0x01
-#define REG_L_GetStatus 0x02
-#define REG_R_MODE 0x03
-#define REG_R_GetStatus 0x04
-#define REG_Power 0x10
-#define REG_SetRGB 0x11
-#define REG_SetBR 0x12
-#define REG_GetLightStatus 0x13
-#define REG_GetErrorCount 0x05
-#define REG_GetNextError 0x06
 
 #define MasType 0; //seat massage
 #define VentType 1; //seat ventilation
@@ -112,21 +99,28 @@ struct ErrorDesc {
 };
 
 const ErrorDesc errorDescriptions[] PROGMEM = {
-    {11,   "Massage didnt response"},
-    {21,   "Vent didnt response"},
-    {31,   "Heat didnt response"},
-    {41,   "BLE commander didnt response"},
-    {12,  "Communication timeout"},
-    {15,  "Calibration failed"},
-    {20,  "Invalid data"},
-    {25,  "Slave module offline"},
-    {30,  "EEPROM write error"},
-    {45,  "ADC reading error"},
-    {50,  "Fan failure"},
-    {60,  "Current overload"},
-    {75,  "Temperature sensor fail"},
-    {100, "Unknown peripheral"},
-    {120, "System reset required"},
+    {10,   "Massage didnt response"},
+    {20,   "Vent didnt response"},
+    {30,   "Heat didnt response"},
+    {40,   "BLE commander didnt response"},
+    {91,   "BLE commander wrong response on HR"},
+
+    // {41,   "Ambient not scannable"},
+    // {42,   "StarSky not scannable"},
+    // {43,   "Ambient has no target service"},
+    // {44,   "StarSky has no target service"},
+    // {45,   "Ambient has no target characteristic"},
+    // {46,   "StarSky has no target characteristic"},
+    // {47,   "Not supproted i2c command"},
+    // {48,   "Ambient has no services"},
+    // {49,   "StarSky has no services"},
+    // {50,   "Ambient has no characteristics"},
+    // {51,   "StarSky has no characteristics"},
+    // {52,   "Ambient still not ready to command"},
+    // {53,   "StarSky still not ready to command"},
+    // {54,   "Ambient bad response"},
+    // {55,   "StarSky bad response"},
+
     {0,   ""}   // terminator (обязательно в конце!)
 };
 
@@ -139,8 +133,7 @@ void setup() {
   mySerial.setTimeout(50);
   Serial.begin(9600);
   Serial.println("Hello!");
-  Wire.begin();
-  Wire.setWireTimeout(250000, false);
+  master.begin();
   pinMode(LED_BUILTIN, OUTPUT);
   ScanModules();
 }
@@ -171,26 +164,118 @@ void loop() {
       disPacketPointer=0;
     }
   }
-  HealthReport();
-}
-
-bool HealthReport(){
   if(millis()-lastMessage>=10000){
     lastMessage=millis();
-    for(int i=0; i<ModuleLen; i++){
-      if(!mods[i].isOnline)
-        continue;
-      if(HasErrors(i)){
-        while(GetNextError(mods[i].addr)){
-          nextError++;
-          if(nextError>20) break;
+    HealthReport();
+  }
+}
+
+//I2C commands
+void HealthReport() {
+  for(int i =0;i<ModuleLen;i++)
+  {
+    uint8_t count = I2C_GetErrorCount(mods[i].addr);
+    if (count == 0) { Serial.println(F("[HEALTH] Ошибок нет")); return; }
+    Serial.print(F("[HEALTH] Ошибок: "));
+    Serial.println(count);
+    for (uint8_t i = 0; i < count; i++) {
+        Error rec;
+        if (I2C_GetError(mods[i].addr, i, rec)) {
+            Serial.print(F("  code=0x"));
+            Serial.print(rec.code, HEX);
+            Serial.print(F(" times="));
+            Serial.println(rec.times);
         }
-        nextError=0;
-      }
     }
   }
 }
 
+bool I2C_Ping(uint8_t slaveAddr) {
+    uint8_t resp[1];
+    auto res = master.transaction(slaveAddr, REG_PING, resp, 1);
+    if (res != I2CMaster::OK || resp[0] != 0x01) {
+        Serial.print(F("[I2C] Ping FAIL: "));
+        Serial.println(I2CMaster::resultStr(res));
+        return false;
+    }
+    Serial.println(F("[I2C] Ping OK"));
+    return true;
+}
+
+uint8_t I2C_GetErrorCount(uint8_t slaveAddr) {
+    uint8_t resp[1] = {0};
+    auto res = master.transaction(slaveAddr, REG_GetErrorCount, resp, 1);
+    if (res != I2CMaster::OK) {
+        Serial.print(F("[I2C] GetErrorCount FAIL: "));
+        Serial.println(I2CMaster::resultStr(res));
+        return 0;
+    }
+    return resp[0];
+}
+
+bool I2C_GetError(uint8_t slaveAddr, uint8_t index, Error& out) {
+    uint8_t resp[7];
+    auto res = master.transaction(slaveAddr, REG_GetNextError, &index, 1, resp, 7);
+    if (res != I2CMaster::OK || resp[0] == 0) return false;
+    out.code  = resp[1];
+    memcpy(&out.tfs, &resp[2], 4);
+    out.times = resp[6];
+    return true;
+}
+
+bool I2C_ClearErrors(uint8_t slaveAddr) {
+    uint8_t resp[1];
+    auto res = master.transaction(slaveAddr, REG_ClearErrors, resp, 1);
+    return res == I2CMaster::OK && resp[0] == 0x01;
+}
+
+byte NextMode(uint8_t slaveAddr, uint8_t seat) {
+    uint8_t reg = (seat == 0) ? REG_L_MODE : REG_R_MODE;
+    uint8_t resp[1];
+    auto res = master.transaction(slaveAddr, reg, resp, 1);
+    if (res != I2CMaster::OK) return 0xFF;  // ошибка
+    return resp[0];
+}
+
+void ApplyLedPower(uint8_t el, bool power) {
+    uint8_t params[] = {el, power ? 1u : 0u};
+    uint8_t resp[1];
+    master.transaction(LIGHT_ADDR, REG_Power, params, sizeof(params), resp, 1);
+}
+
+void ApplyLedColor(uint8_t el, Color rgb) {
+    uint8_t params[] = {el, rgb.r, rgb.g, rgb.b};
+    uint8_t resp[1];
+    master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
+}
+
+void ApplyLedBright(uint8_t el, uint8_t br) {
+    uint8_t params[] = {el, br};
+    uint8_t resp[1];
+    master.transaction(LIGHT_ADDR, REG_SetBR, params, sizeof(params), resp, 1);
+}
+
+uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
+    uint8_t reg = (seat == 0) ? REG_L_GetStatus : REG_R_GetStatus;
+    uint8_t resp[1];
+    auto res = master.transaction(slaveAddr, reg, resp, 1);
+    if (res != I2CMaster::OK) return -1;
+    return resp[0];
+}
+
+void ScanModules(){
+  for (int i=0; i<ModuleLen; i++) {
+    Wire.beginTransmission(mods[i].addr);
+    if (Wire.endTransmission()) {
+      mods[i].isOnline=false;
+      SaveError(mods[i].addr+0);
+    } else {
+      mods[i].isOnline=true;
+    }
+  }
+}
+
+//UART comands
 void ToDo(int data[], int len){
   if(len==0)
     return;
@@ -349,22 +434,9 @@ void HandleGetErrors(int data[], int len){
     DisplaySetVal("pageHR.t1.txt", payload);
 }
 
-const char* GetErrorDescription(uint8_t code)
-{
-    for (int i = 0; ; i++) {
-        uint8_t storedCode = pgm_read_word(&errorDescriptions[i].code);
-        if (storedCode == 0) break;                    // конец списка
-
-        if (storedCode == code) {
-            return (const char*)pgm_read_word(&errorDescriptions[i].description);
-        }
-    }
-    return "Unknown error";
-}
-
 void HandleClearErrors(int data[], int len){
   if (len < 1) return;
-  //Delete all errors from RAM and EEPROM
+  ClearAllErrors();
   DisplaySetVal("pageHR.t1.txt", "");
 }
 
@@ -375,9 +447,8 @@ void TouchPressEvent(int page, int id){
   Button& btn=GetBtn(id);
   Module& mod=GetModule(btn.type);
   Serial.println(btn.friendlyName);
-  int newMode=NextMode(mod.addr, btn.seat);
-  btn.mode = newMode;
-  DisplaySetVal("pageSofa."+btn.objName+".pic", btn.modePic[newMode]);
+  btn.mode =NextMode(mod.addr, btn.seat);
+  DisplaySetVal("pageSofa."+btn.objName+".pic", btn.modePic[btn.mode]);
 }
 
 void TouchReleaseEvent(int page, int id){
@@ -495,96 +566,6 @@ void DisplaySetVal(String path, String val){
 void comandEnd() {
   for (int i = 0; i < 3; i++) {
     mySerial.write(0xff);
-  }
-}
-
-int NextMode(int addr, int seat) {
-  Wire.beginTransmission(addr);
-  Wire.write(seat==0 ? REG_L_MODE : REG_R_MODE);
-  Wire.endTransmission(false);
-  Wire.requestFrom(addr, 1);
-  return Wire.read();
-}
-
-void ApplyLedPower(int el, bool power) {
-  Wire.beginTransmission(LIGHT_ADDR);
-  Wire.write(REG_Power);
-  Wire.write((uint8_t)el);
-  Wire.write(power ? 1 : 0);
-  Wire.endTransmission();
-}
-
-void ApplyLedColor(int el, Color rgb) {
-  Wire.beginTransmission(LIGHT_ADDR);
-  Wire.write(REG_SetRGB);
-  Wire.write((uint8_t)el);
-  Wire.write(rgb.r);
-  Wire.write(rgb.g);
-  Wire.write(rgb.b);
-  Wire.endTransmission();
-}
-
-void ApplyLedBright(int el, uint8_t br) {
-  Wire.beginTransmission(LIGHT_ADDR);
-  Wire.write(REG_SetBR);
-  Wire.write((uint8_t)el);
-  Wire.write(br);
-  Wire.endTransmission();
-}
-
-int GetStatus(int addr, int seat) {
-  Wire.beginTransmission(addr);
-  Wire.write(seat==0 ? REG_L_GetStatus : REG_R_GetStatus);
-  Wire.endTransmission(false);
-  Wire.requestFrom(addr, 1);
-  return Wire.read();
-}
-
-bool HasErrors(int i){
-  Wire.beginTransmission(mods[i].addr);
-  Wire.write(REG_GetErrorCount);
-  Wire.endTransmission(false);
-  Wire.requestFrom(mods[i].addr, 5);
-  uint32_t now=0;
-  uint8_t numOfErrors=0;
-  I2C_readAnything(numOfErrors);
-  I2C_readAnything(now);
-
-  // if(numOfErrors==255){
-  //   SaveError(4+i);
-  //   return false;
-  // }
-  return numOfErrors>0;
-}
-
-bool GetNextError(int addr){
-  Wire.beginTransmission(addr);
-  Wire.write(REG_GetNextError);
-  Wire.write(nextError);
-  Wire.endTransmission(false);
-  Wire.requestFrom(addr, 8);
-  if(Wire.read()==0) return false;
-
-  uint8_t code=0;
-  uint32_t tfs=0;
-  uint8_t times=0;
-  I2C_readAnything(code);
-  I2C_readAnything(tfs);
-  I2C_readAnything(times);
-  
-  SaveError(code, tfs, addr, times);
-  return true;
-}
-
-void ScanModules(){
-  for (int i=0; i<ModuleLen; i++) {
-    Wire.beginTransmission(mods[i].addr);
-    if (Wire.endTransmission()) {
-      mods[i].isOnline=false;
-      SaveError(i+1);
-    } else {
-      mods[i].isOnline=true;
-    }
   }
 }
 
