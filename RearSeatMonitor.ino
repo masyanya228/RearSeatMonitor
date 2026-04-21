@@ -136,8 +136,7 @@ void setup() {
   
   master.begin();
   pinMode(LED_BUILTIN, OUTPUT);
-  //ScanModules();
-  Serial.println("setuped");
+  Serial.println("setup");
 }
 
 int endcombyte=0;
