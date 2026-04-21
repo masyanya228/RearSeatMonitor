@@ -7,6 +7,7 @@
 #define VENTILATION_ADDR 20
 #define HEAT_ADDR        30
 #define LIGHT_ADDR       40
+extern bool isDebug;
 
 /**
  * I2CMaster — класс для Arduino Nano в роли I2C мастера

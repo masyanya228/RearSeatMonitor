@@ -1,15 +1,14 @@
 bool isDebug=true;
-
 #include <SoftwareSerial.h>
 #include <Wire.h>
 #include "I2CMaster.h"
 I2CMaster master;
 
 
-#define MasType 0; //seat massage
-#define VentType 1; //seat ventilation
-#define HeatType 2; //seat heater
-#define LightType 3; //ambient light
+#define MasType 0 //seat massage
+#define VentType 1 //seat ventilation
+#define HeatType 2 //seat heater
+#define LightType 3 //ambient light
 
 // UART команды
 #define CMD_TOUCH 101 // OnPress onRelease
@@ -125,17 +124,20 @@ const ErrorDesc errorDescriptions[] PROGMEM = {
 };
 
 void setup() {
+  delay(2000);
+  Serial.begin(115200);
+
   InitEEPROM();
   SetupBtns();
   SetupMods();
   
   mySerial.begin(9600);
   mySerial.setTimeout(50);
-  Serial.begin(9600);
-  Serial.println("Hello!");
+  
   master.begin();
   pinMode(LED_BUILTIN, OUTPUT);
-  ScanModules();
+  //ScanModules();
+  Serial.println("setuped");
 }
 
 int endcombyte=0;
@@ -172,18 +174,22 @@ void loop() {
 
 //I2C commands
 void HealthReport() {
-  for(int i =0;i<ModuleLen;i++)
+  logS("HealthReport");
+  for(int m=0; m<ModuleLen; m++)
   {
-    uint8_t count = I2C_GetErrorCount(mods[i].addr);
-    if (count == 0) { Serial.println(F("[HEALTH] Ошибок нет")); return; }
-    Serial.print(F("[HEALTH] Ошибок: "));
+    bool ping=I2C_Ping(mods[m].addr);
+    if(!ping)
+      continue;
+    uint8_t count = I2C_GetErrorCount(mods[m].addr);
+    if (count == 0) { Serial.println("[HEALTH] Ошибок нет"); return; }
+    Serial.print("[HEALTH] Ошибок: ");
     Serial.println(count);
     for (uint8_t i = 0; i < count; i++) {
         Error rec;
-        if (I2C_GetError(mods[i].addr, i, rec)) {
-            Serial.print(F("  code=0x"));
+        if (I2C_GetError(mods[m].addr, i, rec)) {
+            Serial.print("  code=0x");
             Serial.print(rec.code, HEX);
-            Serial.print(F(" times="));
+            Serial.print(" times=");
             Serial.println(rec.times);
         }
     }
@@ -203,14 +209,15 @@ bool I2C_Ping(uint8_t slaveAddr) {
 }
 
 uint8_t I2C_GetErrorCount(uint8_t slaveAddr) {
-    uint8_t resp[1] = {0};
-    auto res = master.transaction(slaveAddr, REG_GetErrorCount, resp, 1);
-    if (res != I2CMaster::OK) {
-        Serial.print(F("[I2C] GetErrorCount FAIL: "));
-        Serial.println(I2CMaster::resultStr(res));
-        return 0;
-    }
-    return resp[0];
+  Serial.println("I2C_GetErrorCount");
+  uint8_t resp[2] = {0, 0};
+  auto res = master.transaction(slaveAddr, REG_GetErrorCount, resp, sizeof(resp));
+  if (res != I2CMaster::OK) {
+      Serial.print(F("[I2C] GetErrorCount FAIL: "));
+      Serial.println(I2CMaster::resultStr(res));
+      return 0;
+  }
+  return resp[1];
 }
 
 bool I2C_GetError(uint8_t slaveAddr, uint8_t index, Error& out) {
@@ -264,6 +271,7 @@ uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
 }
 
 void ScanModules(){
+  return;
   for (int i=0; i<ModuleLen; i++) {
     Wire.beginTransmission(mods[i].addr);
     if (Wire.endTransmission()) {

@@ -4,11 +4,11 @@ void InitEEPROM() {
   sizeErr = sizeof(errors[0]);
   errLen = sizeof(errors)/sizeErr;
   LoadErrors();                     // загружаем текущее состояние
-  if (true) {            // первый запуск
-    if (isDebug) Serial.println(F("EEPROM Init - first run"));
+  if (false) {            // первый запуск
+    if (isDebug) Serial.println("EEPROM");
     int i = 0;
     while (true) {
-      uint16_t code = pgm_read_word(&errorDescriptions[i].code);
+      uint8_t code = pgm_read_word(&errorDescriptions[i].code);
       if (code == 0) break;
 
       errors[i].code  = code;
@@ -18,7 +18,7 @@ void InitEEPROM() {
       i++;
     }
     EEPROM.put(0, errors);        // сохраняем только разрешённые коды
-    if (isDebug) Serial.print(F("Initialized ")); Serial.print(errLen); Serial.println(F(" error slots"));
+    if (isDebug) Serial.print("Initialized "); Serial.print(errLen); Serial.println(" error slots");
   }
 }
 
@@ -91,10 +91,9 @@ void SaveError(uint8_t code) {
 
 void SaveError(uint8_t code, uint32_t tfs, uint8_t addr, uint8_t times) {
   if (!IsErrorCodeAllowed(code)) {
-    if (isDebug) { Serial.print(F("Error code ")); Serial.print(code); Serial.println(F(" not allowed")); }
+    if (isDebug) { Serial.print("Error code "); Serial.print(code); Serial.println(" not allowed"); }
     return;
   }
-  logI("encountered", code);
 
   int i = IndexOfError(code);
   if (i == -1) return;
