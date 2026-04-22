@@ -528,10 +528,18 @@ void ReqPic(int id){
   QueueOfRequestsLen++;
 }
 
+int Snap(int n, int sn, int en, int min, int max) {
+    if (n < sn) return min;
+    if (n > en) return max;
+    return map(n, sn, en, min, max);
+}
+
 Color HsvToRgb(uint16_t x, uint16_t y) {
   x=x-60;
   y=y-50;
   y=185-y;
+  x=Snap(x, 50, 135, 0, 185);
+  y=Snap(y, 50, 135, 0, 185);
   // x: 0..184  → Hue 0..359
   // y: 0..184  → Saturation 0.0 .. 1.0 (сверху белый, снизу яркий цвет)
 
