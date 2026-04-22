@@ -180,6 +180,7 @@ void HealthReport() {
   logS("HealthReport");
   for(int m=0; m<ModuleLen; m++)
   {
+    Serial.println(mods[m].friendlyName);
     bool ping=I2C_Ping(mods[m].addr);
     if(!ping)
       continue;
