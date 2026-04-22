@@ -185,7 +185,7 @@ void HealthReport() {
     if(!ping)
       continue;
     uint8_t count = I2C_GetErrorCount(mods[m].addr);
-    if (count == 0) { Serial.println("[HEALTH] Ошибок нет"); return; }
+    if (count == 0) { Serial.println("[HEALTH] Ошибок нет"); continue;}
     Serial.print("[HEALTH] Ошибок: ");
     Serial.println(count);
     for (uint8_t i = 0; i < count; i++) {
