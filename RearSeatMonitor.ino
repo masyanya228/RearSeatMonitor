@@ -31,7 +31,7 @@ I2CMaster master;
 struct LedElement {
   bool    on;
   uint8_t r, g, b;
-  uint8_t bright;  // 0–100
+  uint8_t br;  // 0–100
 };
 
 struct Color{
@@ -261,6 +261,28 @@ void ApplyLedBright(uint8_t el, uint8_t br) {
     master.transaction(LIGHT_ADDR, REG_SetBR, params, sizeof(params), resp, 1);
 }
 
+bool GetLedStatus() {
+    uint8_t resp[16];
+    auto res = master.transaction(LIGHT_ADDR, REG_GetLightStatus, resp, sizeof(resp));
+    if (res != I2CMaster::OK) return false;
+    leds[0].on=resp[1];
+    leds[0].r=resp[2];
+    leds[0].g=resp[3];
+    leds[0].b=resp[4];
+    leds[0].br=resp[5];
+    leds[1].on=resp[6];
+    leds[1].r=resp[7];
+    leds[1].g=resp[8];
+    leds[1].b=resp[9];
+    leds[1].br=resp[10];
+    leds[2].on=resp[11];
+    leds[2].r=resp[12];
+    leds[2].g=resp[13];
+    leds[2].b=resp[14];
+    leds[2].br=resp[15];
+    return true;
+}
+
 uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
     uint8_t reg = (seat == 0) ? REG_L_GetStatus : REG_R_GetStatus;
     uint8_t resp[1];
@@ -302,7 +324,7 @@ void ToDo(int data[], int len){
     case CMD_LED_PALITRA: HandleLedPalitra(data, len);      break;
     case CMD_LED_COLOR: HandleLedColor(data, len);      break;
     case CMD_LED_BRIGHT: HandleLedBright(data, len); break;
-    //case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
+    case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
     case CMD_GET_ERRORS: HandleGetErrors(data, len); break;
     case CMD_CLEAR_ERRORS: HandleClearErrors(data, len); break;
     default:
@@ -398,15 +420,38 @@ void HandleLedBright(int data[], int len) {
   if (el < 0 || el > 6)     return;
   if (value < 0 || value > 100) return;
   if(el == LED_SKY || el==LED_SKY_LINES || el == LED_ALL) {
-    leds[LED_SKY].bright = value;
+    leds[LED_SKY].br = value;
   }
   if(el == LED_LINES || el == LED_LINES_FLOOR || el==LED_SKY_LINES || el == LED_ALL) {
-    leds[LED_LINES].bright = value;
+    leds[LED_LINES].br = value;
   }
   if(el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
-    leds[LED_FLOOR].bright = value;
+    leds[LED_FLOOR].br = value;
   }
   ApplyLedBright(el, value);
+}
+
+void HandleLedGetState(int data[], int len){
+  if(GetLedStatus()){
+    // DisplaySetVal("pageMain."+"p0"+".val", leds[0].on);
+    // DisplaySetVal("pageMain."+"r0"+".val", leds[0].r);
+    // DisplaySetVal("pageMain."+"g0"+".val", leds[0].g);
+    // DisplaySetVal("pageMain."+"b0"+".val", leds[0].b);
+    // DisplaySetVal("pageMain."+"br0"+".val", leds[0].br);
+
+    // DisplaySetVal("pageMain."+"p1"+".val", leds[1].on);
+    // DisplaySetVal("pageMain."+"r1"+".val", leds[1].r);
+    // DisplaySetVal("pageMain."+"g1"+".val", leds[1].g);
+    // DisplaySetVal("pageMain."+"b1"+".val", leds[1].b);
+    // DisplaySetVal("pageMain."+"br1"+".val", leds[1].br);
+
+    // DisplaySetVal("pageMain."+"p2"+".val", leds[2].on);
+    // DisplaySetVal("pageMain."+"r2"+".val", leds[2].r);
+    // DisplaySetVal("pageMain."+"g2"+".val", leds[2].g);
+    // DisplaySetVal("pageMain."+"b2"+".val", leds[2].b);
+    // DisplaySetVal("pageMain."+"br2"+".val", leds[2].br);
+    DisplaySetVal("pageMain.t0.en", 1);
+  }
 }
 
 void HandleGetErrors(int data[], int len){
@@ -479,6 +524,7 @@ void ReqPic(int id){
 Color HsvToRgb(uint16_t x, uint16_t y) {
   x=x-60;
   y=y-50;
+  y=185-y;
   // x: 0..184  → Hue 0..359
   // y: 0..184  → Saturation 0.0 .. 1.0 (сверху белый, снизу яркий цвет)
 
