@@ -22,6 +22,18 @@ void InitEEPROM() {
   }
 }
 
+String GetErrorDescription(uint8_t code) {
+    for (uint8_t i = 0; ; i++) {
+        uint8_t c = pgm_read_byte(&errorDescriptions[i].code);
+        if (c == 0) break;
+        if (c == code) {
+            const char* ptr = (const char*)pgm_read_ptr(&errorDescriptions[i].description);
+            return String((__FlashStringHelper*)ptr);
+        }
+    }
+    return String(F("Unknown"));
+}
+
 void LoadErrors() {
   EEPROM.get(0, errors);
 }
@@ -72,17 +84,6 @@ bool IsErrorCodeAllowed(uint8_t code) {
         if (c == code) return true;
     }
     return false;
-}
-
-const char* GetErrorDescription(uint8_t code) {
-    for (int i = 0; ; i++) {
-        uint16_t c = pgm_read_word(&errorDescriptions[i].code);
-        if (c == 0) break;
-        if (c == code) {
-            return (const char*)pgm_read_word(&errorDescriptions[i].description);
-        }
-    }
-    return "Unknown error";
 }
 
 void SaveError(uint8_t code) {

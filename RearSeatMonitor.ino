@@ -92,35 +92,39 @@ int sizeErr;
 int errLen;
 int nextError=0;
 
+const char e10[] PROGMEM = "Massage didnt response";
+const char e20[] PROGMEM = "Vent didnt response";
+const char e30[] PROGMEM = "Heat didnt response";
+const char e40[] PROGMEM = "BLE commander didnt response";
+const char e91[] PROGMEM = "BLE commander wrong response on HR";
+const char e41[] PROGMEM = "Ambient not scannable";
+const char e42[] PROGMEM = "StarSky not scannable";
+const char e43[] PROGMEM = "Ambient has no target service";
+const char e44[] PROGMEM = "StarSky has no target service";
+const char e45[] PROGMEM = "Ambient has no target characteristic";
+const char e46[] PROGMEM = "StarSky has no target characteristic";
+const char e47[] PROGMEM = "Not supported i2c command";
+const char e48[] PROGMEM = "Ambient has no services";
+const char e49[] PROGMEM = "StarSky has no services";
+const char e50[] PROGMEM = "Ambient has no characteristics";
+const char e51[] PROGMEM = "StarSky has no characteristics";
+const char e52[] PROGMEM = "Ambient still not ready to command";
+const char e53[] PROGMEM = "StarSky still not ready to command";
+const char e54[] PROGMEM = "Ambient bad response";
+const char e55[] PROGMEM = "StarSky bad response";
+
 struct ErrorDesc {
     uint8_t code;
     const char* description;
 };
 
 const ErrorDesc errorDescriptions[] PROGMEM = {
-    {10,   "Massage didnt response"},
-    {20,   "Vent didnt response"},
-    {30,   "Heat didnt response"},
-    {40,   "BLE commander didnt response"},
-    {91,   "BLE commander wrong response on HR"},
-
-    // {41,   "Ambient not scannable"},
-    // {42,   "StarSky not scannable"},
-    // {43,   "Ambient has no target service"},
-    // {44,   "StarSky has no target service"},
-    // {45,   "Ambient has no target characteristic"},
-    // {46,   "StarSky has no target characteristic"},
-    // {47,   "Not supproted i2c command"},
-    // {48,   "Ambient has no services"},
-    // {49,   "StarSky has no services"},
-    // {50,   "Ambient has no characteristics"},
-    // {51,   "StarSky has no characteristics"},
-    // {52,   "Ambient still not ready to command"},
-    // {53,   "StarSky still not ready to command"},
-    // {54,   "Ambient bad response"},
-    // {55,   "StarSky bad response"},
-
-    {0,   ""}   // terminator (обязательно в конце!)
+    {10, e10}, {20, e20}, {30, e30}, {40, e40},
+    {91, e91}, {41, e41}, {42, e42}, {43, e43},
+    {44, e44}, {45, e45}, {46, e46}, {47, e47},
+    {48, e48}, {49, e49}, {50, e50}, {51, e51},
+    {52, e52}, {53, e53}, {54, e54}, {55, e55},
+    {0, nullptr}
 };
 
 void setup() {
@@ -455,35 +459,38 @@ void HandleLedGetState(int data[], int len){
 }
 
 void HandleGetErrors(int data[], int len){
+  Serial.print("HandleGetErrors ");
   if (len < 5) return;
   int page = data[1];
+  Serial.println("page #"+String(page));
   const int limit = 8;                    // например, по 5 ошибок на "страницу"
   Error pageErrors[limit];                // временный массив для текущей страницы
   int count = GetErrors(page, limit, pageErrors);
+  Serial.print("count #"+String(count));
   String payload = "";                    // сюда собираем все ошибки
 
-    for (int i = 0; i < count; i++)
-    {
-        uint32_t minutesAgo = 0;
-        if (pageErrors[i].tfs > 0) {
-            minutesAgo = (millis() - pageErrors[i].tfs) / 60000UL;   // минуты назад
-        }
-
-        uint8_t code = pageErrors[i].code;
-        const char* desc = GetErrorDescription(pageErrors[i].code);
-        String line = String(pageErrors[i].code) + "|" +
-                      String(pageErrors[i].addr) + "|" +
-                      String(pageErrors[i].times) + "|" +
-                      String(minutesAgo) + "|" +
-                      desc;
-
-        if (i > 0) payload += "\r";
-        payload += line;
+  for (int i = 0; i < count; i++)
+  {
+    uint32_t minutesAgo = 0;
+    if (pageErrors[i].tfs > 0) {
+      minutesAgo = (millis() - pageErrors[i].tfs) / 60000UL;   // минуты назад
     }
-    if (count == 0) {
-        payload = "0|0|0|0|No errors on this page";
-    }
-    DisplaySetVal("pageHR.t1.txt", payload);
+
+    uint8_t code = pageErrors[i].code;
+    auto desc = GetErrorDescription(pageErrors[i].code);
+    String line = String(pageErrors[i].code) + "|" +
+                  String(pageErrors[i].addr) + "|" +
+                  String(pageErrors[i].times) + "|" +
+                  String(minutesAgo) + "|" +
+                  desc;
+
+    if (i > 0) payload += "\r";
+    payload += line;
+  }
+  if (count == 0) {
+    payload = "0|0|0|0|No errors on this page";
+  }
+  DisplaySetVal("pageHR.t1.txt", payload);
 }
 
 void HandleClearErrors(int data[], int len){
