@@ -437,24 +437,17 @@ void HandleLedBright(int data[], int len) {
 
 void HandleLedGetState(int data[], int len){
   if(GetLedStatus()){
-    // DisplaySetVal("pageMain."+"p0"+".val", leds[0].on);
-    // DisplaySetVal("pageMain."+"r0"+".val", leds[0].r);
-    // DisplaySetVal("pageMain."+"g0"+".val", leds[0].g);
-    // DisplaySetVal("pageMain."+"b0"+".val", leds[0].b);
-    // DisplaySetVal("pageMain."+"br0"+".val", leds[0].br);
+    DisplaySetVal("pageMain.vaP1.val", leds[0].on);
+    DisplaySetVal("pageMain.vaCol1.val", RgbToRgb565(leds[0].r, leds[0].g, leds[0].b));
+    DisplaySetVal("pageMain.vaBr1.val", leds[0].br);
 
-    // DisplaySetVal("pageMain."+"p1"+".val", leds[1].on);
-    // DisplaySetVal("pageMain."+"r1"+".val", leds[1].r);
-    // DisplaySetVal("pageMain."+"g1"+".val", leds[1].g);
-    // DisplaySetVal("pageMain."+"b1"+".val", leds[1].b);
-    // DisplaySetVal("pageMain."+"br1"+".val", leds[1].br);
+    DisplaySetVal("pageMain.vaP2.val", leds[1].on);
+    DisplaySetVal("pageMain.vaCol2.val", RgbToRgb565(leds[1].r, leds[1].g, leds[1].b));
+    DisplaySetVal("pageMain.vaBr2.val", leds[1].br);
 
-    // DisplaySetVal("pageMain."+"p2"+".val", leds[2].on);
-    // DisplaySetVal("pageMain."+"r2"+".val", leds[2].r);
-    // DisplaySetVal("pageMain."+"g2"+".val", leds[2].g);
-    // DisplaySetVal("pageMain."+"b2"+".val", leds[2].b);
-    // DisplaySetVal("pageMain."+"br2"+".val", leds[2].br);
-    DisplaySetVal("pageMain.t0.en", 1);
+    DisplaySetVal("pageMain.vaP3.val", leds[2].on);
+    DisplaySetVal("pageMain.vaCol3.val", RgbToRgb565(leds[2].r, leds[2].g, leds[2].b));
+    DisplaySetVal("pageMain.vaBr3.val", leds[2].br);
   }
 }
 
@@ -574,6 +567,15 @@ uint16_t RgbToRgb565(Color rgb)
   uint8_t r5 = (uint8_t)rgb.r >> 3;   // 5 бит
   uint8_t g6 = (uint8_t)rgb.g >> 2;   // 6 бит
   uint8_t b5 = (uint8_t)rgb.b >> 3;   // 5 бит
+  return (r5 << 11) | (g6 << 5) | b5;
+}
+
+uint16_t RgbToRgb565(byte r, byte g, byte b)
+{
+  // Преобразование в 16-бит RGB565 (Nextion формат)
+  uint8_t r5 = r >> 3;   // 5 бит
+  uint8_t g6 = g >> 2;   // 6 бит
+  uint8_t b5 = b >> 3;   // 5 бит
   return (r5 << 11) | (g6 << 5) | b5;
 }
 
