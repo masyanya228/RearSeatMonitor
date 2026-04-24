@@ -5,21 +5,25 @@ void InitEEPROM() {
   errLen = sizeof(errors)/sizeErr;
   LoadErrors();                     // загружаем текущее состояние
   if (false) {            // первый запуск
-    if (isDebug) Serial.println("EEPROM");
-    int i = 0;
-    while (true) {
-      uint8_t code = pgm_read_word(&errorDescriptions[i].code);
-      if (code == 0) break;
-
-      errors[i].code  = code;
-      errors[i].tfs   = 0;
-      errors[i].times = 0;
-      errors[i].addr  = 0;
-      i++;
-    }
-    EEPROM.put(0, errors);        // сохраняем только разрешённые коды
-    if (isDebug) Serial.print("Initialized "); Serial.print(errLen); Serial.println(" error slots");
+    FirstInit();
   }
+}
+
+void FirstInit(){
+  if (isDebug) Serial.println("EEPROM");
+  int i = 0;
+  while (true) {
+    uint8_t code = pgm_read_byte(&errorDescriptions[i].code);
+    if (code == 0) break;
+
+    errors[i].code  = code;
+    errors[i].tfs   = 0;
+    errors[i].times = 0;
+    errors[i].addr  = 0;
+    i++;
+  }
+  EEPROM.put(0, errors);        // сохраняем только разрешённые коды
+  if (isDebug) Serial.print("Initialized "); Serial.print(errLen); Serial.println(" error slots");
 }
 
 String GetErrorDescription(uint8_t code) {

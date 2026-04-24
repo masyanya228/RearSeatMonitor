@@ -173,6 +173,18 @@ void loop() {
     lastMessage=millis();
     HealthReport();
   }
+
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    command.toLowerCase();
+
+    if (command == "setpic0") {
+      DisplaySetVal("pageSofa.m1.pic", 18);
+    } else if (command == "setpic1") {
+      DisplaySetVal("pageSofa.m1.pic", 19);
+    }
+  }
 }
 
 //I2C commands
@@ -201,15 +213,15 @@ void HealthReport() {
 }
 
 bool I2C_Ping(uint8_t slaveAddr) {
-    uint8_t resp[1];
-    auto res = master.transaction(slaveAddr, REG_PING, resp, 1);
-    if (res != I2CMaster::OK || resp[0] != 0x01) {
-        Serial.print(F("[I2C] Ping FAIL: "));
-        Serial.println(I2CMaster::resultStr(res));
-        return false;
-    }
-    Serial.println(F("[I2C] Ping OK"));
-    return true;
+  uint8_t resp[1];
+  auto res = master.transaction(slaveAddr, REG_PING, resp, 1);
+  if (res != I2CMaster::OK || resp[0] != 0x01) {
+      Serial.print(F("[I2C] Ping FAIL: "));
+      Serial.println(I2CMaster::resultStr(res));
+      return false;
+  }
+  Serial.println(F("[I2C] Ping OK"));
+  return true;
 }
 
 uint8_t I2C_GetErrorCount(uint8_t slaveAddr) {
@@ -225,67 +237,71 @@ uint8_t I2C_GetErrorCount(uint8_t slaveAddr) {
 }
 
 bool I2C_GetError(uint8_t slaveAddr, uint8_t index, Error& out) {
-    uint8_t resp[7];
-    auto res = master.transaction(slaveAddr, REG_GetNextError, &index, 1, resp, 7);
-    if (res != I2CMaster::OK || resp[0] == 0) return false;
-    out.code  = resp[1];
-    memcpy(&out.tfs, &resp[2], 4);
-    out.times = resp[6];
-    return true;
+  uint8_t resp[7];
+  auto res = master.transaction(slaveAddr, REG_GetNextError, &index, 1, resp, 7);
+  if (res != I2CMaster::OK || resp[0] == 0) return false;
+  out.code  = resp[1];
+  memcpy(&out.tfs, &resp[2], 4);
+  out.times = resp[6];
+  return true;
 }
 
 bool I2C_ClearErrors(uint8_t slaveAddr) {
-    uint8_t resp[1];
-    auto res = master.transaction(slaveAddr, REG_ClearErrors, resp, 1);
-    return res == I2CMaster::OK && resp[0] == 0x01;
+  uint8_t resp[1];
+  auto res = master.transaction(slaveAddr, REG_ClearErrors, resp, 1);
+  return res == I2CMaster::OK && resp[0] == 0x01;
 }
 
 byte NextMode(uint8_t slaveAddr, uint8_t seat) {
-    uint8_t reg = (seat == 0) ? REG_L_MODE : REG_R_MODE;
-    uint8_t resp[1];
-    auto res = master.transaction(slaveAddr, reg, resp, 1);
-    if (res != I2CMaster::OK) return 0xFF;  // ошибка
-    return resp[0];
+  Serial.println("NextMode");
+  uint8_t reg = (seat == 0) ? REG_L_MODE : REG_R_MODE;
+  uint8_t resp[2];
+  auto res = master.transaction(slaveAddr, reg, resp, 2);
+  Serial.println("res= "+String(res));
+  if (res != I2CMaster::OK) return 0xFF;  // ошибка
+  Serial.println("resp= "+String(resp[1]));
+  return resp[1];
 }
 
 void ApplyLedPower(uint8_t el, bool power) {
-    uint8_t params[] = {el, power ? 1u : 0u};
-    uint8_t resp[1];
-    master.transaction(LIGHT_ADDR, REG_Power, params, sizeof(params), resp, 1);
+  uint8_t params[] = {el, power ? 1u : 0u};
+  uint8_t resp[1];
+  master.transaction(LIGHT_ADDR, REG_Power, params, sizeof(params), resp, 1);
 }
 
 void ApplyLedColor(uint8_t el, Color rgb) {
-    uint8_t params[] = {el, rgb.r, rgb.g, rgb.b};
-    uint8_t resp[1];
-    master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
+  uint8_t params[] = {el, rgb.r, rgb.g, rgb.b};
+  uint8_t resp[1];
+  master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
 }
 
 void ApplyLedBright(uint8_t el, uint8_t br) {
-    uint8_t params[] = {el, br};
-    uint8_t resp[1];
-    master.transaction(LIGHT_ADDR, REG_SetBR, params, sizeof(params), resp, 1);
+  uint8_t params[] = {el, br};
+  uint8_t resp[1];
+  master.transaction(LIGHT_ADDR, REG_SetBR, params, sizeof(params), resp, 1);
 }
 
 bool GetLedStatus() {
-    uint8_t resp[16];
-    auto res = master.transaction(LIGHT_ADDR, REG_GetLightStatus, resp, sizeof(resp));
-    if (res != I2CMaster::OK) return false;
-    leds[0].on=resp[1];
-    leds[0].r=resp[2];
-    leds[0].g=resp[3];
-    leds[0].b=resp[4];
-    leds[0].br=resp[5];
-    leds[1].on=resp[6];
-    leds[1].r=resp[7];
-    leds[1].g=resp[8];
-    leds[1].b=resp[9];
-    leds[1].br=resp[10];
-    leds[2].on=resp[11];
-    leds[2].r=resp[12];
-    leds[2].g=resp[13];
-    leds[2].b=resp[14];
-    leds[2].br=resp[15];
-    return true;
+  Serial.println("GetLedStatus");
+  uint8_t resp[16];
+  auto res = master.transaction(LIGHT_ADDR, REG_GetLightStatus, resp, sizeof(resp));
+  if (res != I2CMaster::OK) return false;
+  leds[0].on=resp[1];
+  leds[0].r=resp[2];
+  leds[0].g=resp[3];
+  leds[0].b=resp[4];
+  leds[0].br=resp[5];
+  leds[1].on=resp[6];
+  leds[1].r=resp[7];
+  leds[1].g=resp[8];
+  leds[1].b=resp[9];
+  leds[1].br=resp[10];
+  leds[2].on=resp[11];
+  leds[2].r=resp[12];
+  leds[2].g=resp[13];
+  leds[2].b=resp[14];
+  leds[2].br=resp[15];
+  return true;
 }
 
 uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
@@ -437,7 +453,9 @@ void HandleLedBright(int data[], int len) {
 }
 
 void HandleLedGetState(int data[], int len){
+  Serial.println("HandleLedGetState");
   if(GetLedStatus()){
+    Serial.println("HandleLedGetState->GetLedStatus");
     DisplaySetVal("pageMain.vaP1.val", leds[0].on);
     DisplaySetVal("pageMain.vaCol1.val", RgbToRgb565(leds[0].r, leds[0].g, leds[0].b));
     DisplaySetVal("pageMain.vaBr1.val", leds[0].br);
@@ -484,13 +502,13 @@ void HandleGetErrors(int data[], int len){
   if (count == 0) {
     payload = "0|0|0|0|No errors on this page";
   }
-  DisplaySetVal("pageHR.t1.txt", payload);
+  DisplaySetTxt("pageHR.t1.txt", payload);
 }
 
 void HandleClearErrors(int data[], int len){
   if (len < 1) return;
   ClearAllErrors();
-  DisplaySetVal("pageHR.t1.txt", "");
+  DisplaySetTxt("pageHR.t1.txt", "");
 }
 
 void TouchPressEvent(int page, int id){
@@ -499,9 +517,11 @@ void TouchPressEvent(int page, int id){
 
   Button& btn=GetBtn(id);
   Module& mod=GetModule(btn.type);
-  Serial.println(btn.friendlyName);
-  btn.mode =NextMode(mod.addr, btn.seat);
-  DisplaySetVal("pageSofa."+btn.objName+".pic", btn.modePic[btn.mode]);
+  byte newMode =NextMode(mod.addr, btn.seat);
+  btn.mode=newMode;
+  char cmd[16];
+  snprintf(cmd, sizeof(cmd), "%s.pic", btn.objName.c_str());
+  DisplaySetCharVal(cmd, btn.modePic[newMode]);
 }
 
 void TouchReleaseEvent(int page, int id){
@@ -598,7 +618,7 @@ Color Rgb565ToRgb(uint16_t rgb565)
 
 
 Button& GetBtn(int id){
-  int len=4;
+  int len=6;
   while(len>0)
   {
     len--;
@@ -606,6 +626,7 @@ Button& GetBtn(int id){
       return btns[len];
   }
   Serial.println("out of array");
+  return btns[0];
 }
 
 Module& GetModule(int type){
@@ -619,6 +640,14 @@ Module& GetModule(int type){
   Serial.println("out of array");
 }
 
+void DisplaySetCharVal(const char* path, int val) {
+    mySerial.print(path);
+    mySerial.print("=");
+    mySerial.print(val);
+    comandEnd();
+}
+
+
 void DisplaySetVal(String path, int val){
   mySerial.print(path);
   mySerial.print("="); 
@@ -626,7 +655,7 @@ void DisplaySetVal(String path, int val){
   comandEnd();
 }
 
-void DisplaySetVal(String path, String val){
+void DisplaySetTxt(String path, String val){
   mySerial.print(path);
   mySerial.print("="); 
   mySerial.print(val);
@@ -705,7 +734,7 @@ void SetupBtns(){
   btns[5].modePic[2]=2;
   btns[5].modePic[3]=0;
   btns[5].type=HeatType;
-  btns[5].seat=0;
+  btns[5].seat=1;
 }
 
 void SetupMods(){
