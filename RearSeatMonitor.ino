@@ -9,6 +9,7 @@ I2CMaster master;
 #define VentType 1 //seat ventilation
 #define HeatType 2 //seat heater
 #define LightType 3 //ambient light
+#define VibroType 4 //ambient light
 
 // UART команды
 #define CMD_TOUCH 101 // OnPress onRelease
@@ -55,8 +56,8 @@ struct Module{
 };
 
 //i2c модули
-Module mods[4];
-int ModuleLen=4;
+Module mods[5];
+int ModuleLen=5;
 
 // serial port для связи с дисплеем
 SoftwareSerial mySerial(8, 9);
@@ -78,7 +79,8 @@ struct Button{
   byte type;
   byte seat;
 };
-Button btns[6];
+byte btnLen=8;
+Button btns[8];
 
 //Ошибки в памяти
 struct Error{
@@ -92,26 +94,51 @@ int sizeErr;
 int errLen;
 int nextError=0;
 
-const char e10[] PROGMEM = "Massage didnt response";
-const char e20[] PROGMEM = "Vent didnt response";
-const char e30[] PROGMEM = "Heat didnt response";
-const char e40[] PROGMEM = "BLE commander didnt response";
-const char e91[] PROGMEM = "BLE commander wrong response on HR";
-const char e41[] PROGMEM = "Ambient not scannable";
-const char e42[] PROGMEM = "StarSky not scannable";
-const char e43[] PROGMEM = "Ambient has no target service";
-const char e44[] PROGMEM = "StarSky has no target service";
-const char e45[] PROGMEM = "Ambient has no target characteristic";
-const char e46[] PROGMEM = "StarSky has no target characteristic";
-const char e47[] PROGMEM = "Not supported i2c command";
-const char e48[] PROGMEM = "Ambient has no services";
-const char e49[] PROGMEM = "StarSky has no services";
-const char e50[] PROGMEM = "Ambient has no characteristics";
-const char e51[] PROGMEM = "StarSky has no characteristics";
-const char e52[] PROGMEM = "Ambient still not ready to command";
-const char e53[] PROGMEM = "StarSky still not ready to command";
-const char e54[] PROGMEM = "Ambient bad response";
-const char e55[] PROGMEM = "StarSky bad response";
+/*
+1-9 connection error
+91-99 unknown error code
+10-19 massage errors
+20-29 vent errors
+30-39 heat errors
+40-49, 60-69 light errors
+50-59 vibro errors
+*/
+const char e1[] PROGMEM = "Massage didnt response";
+const char e2[] PROGMEM = "Vent didnt response";
+const char e3[] PROGMEM = "Heat didnt response";
+const char e4[] PROGMEM = "Light didnt response";
+const char e5[] PROGMEM = "Vibro didnt response";
+
+const char e11[] PROGMEM = "Left massage wrong state";
+const char e12[] PROGMEM = "Right massage wrong state";
+
+const char e31[] PROGMEM = "Left heat wrong state";
+const char e32[] PROGMEM = "Right heat wrong state";
+
+const char e41[] PROGMEM = "Light:Ambient not scannable";
+const char e42[] PROGMEM = "Light:StarSky not scannable";
+const char e43[] PROGMEM = "Light:Ambient has no target service";
+const char e44[] PROGMEM = "Light:StarSky has no target service";
+const char e45[] PROGMEM = "Light:Ambient has no target characteristic";
+const char e46[] PROGMEM = "Light:StarSky has no target characteristic";
+const char e47[] PROGMEM = "Light:Not supported i2c command";
+const char e48[] PROGMEM = "Light:Ambient has no services";
+const char e49[] PROGMEM = "Light:StarSky has no services";
+const char e60[] PROGMEM = "Light:Ambient has no characteristics";
+const char e61[] PROGMEM = "Light:StarSky has no characteristics";
+const char e62[] PROGMEM = "Light:Ambient still not ready to command";
+const char e63[] PROGMEM = "Light:StarSky still not ready to command";
+const char e64[] PROGMEM = "Light:Ambient bad response";
+const char e65[] PROGMEM = "Light:StarSky bad response";
+
+const char e51[] PROGMEM = "Left vibro wrong state";
+const char e52[] PROGMEM = "Right vibro wrong state";
+
+const char e91[] PROGMEM = "Massage unknown error code";
+const char e92[] PROGMEM = "Vent unknown error code";
+const char e93[] PROGMEM = "Heat unknown error code";
+const char e94[] PROGMEM = "Light unknown error code";
+const char e95[] PROGMEM = "Vibro unknown error code";
 
 struct ErrorDesc {
     uint8_t code;
@@ -119,11 +146,12 @@ struct ErrorDesc {
 };
 
 const ErrorDesc errorDescriptions[] PROGMEM = {
-    {10, e10}, {20, e20}, {30, e30}, {40, e40},
-    {91, e91}, {41, e41}, {42, e42}, {43, e43},
-    {44, e44}, {45, e45}, {46, e46}, {47, e47},
-    {48, e48}, {49, e49}, {50, e50}, {51, e51},
-    {52, e52}, {53, e53}, {54, e54}, {55, e55},
+    {1, e10}, {11, e11}, {12, e12},
+    {2, e20},
+    {3, e30}, {31, e31}, {32, e32}, 
+    {4, e40}, {41, e41}, {42, e42}, {43, e43}, {44, e44}, {45, e45}, {46, e46}, {47, e47}, {48, e48}, {49, e49}, {60, e60}, {61, e61}, {62, e62}, {63, e63}, {64, e64}, {65, e65},
+    {5, e5}, {51, e51}, {52, e52},
+    {91, e91}, {92, e92}, {93, e93}, {94, e94}, {95, e95},
     {0, nullptr}
 };
 
@@ -194,8 +222,10 @@ void HealthReport() {
   {
     Serial.println(mods[m].friendlyName);
     bool ping=I2C_Ping(mods[m].addr);
-    if(!ping)
+    if(!ping){
+      SaveError(mods[m].addr/10);
       continue;
+    }
     uint8_t count = I2C_GetErrorCount(mods[m].addr);
     if (count == 0) { Serial.println("[HEALTH] Ошибок нет"); continue;}
     Serial.print("[HEALTH] Ошибок: ");
@@ -203,10 +233,11 @@ void HealthReport() {
     for (uint8_t i = 0; i < count; i++) {
         Error rec;
         if (I2C_GetError(mods[m].addr, i, rec)) {
-            Serial.print("  code=0x");
-            Serial.print(rec.code, HEX);
-            Serial.print(" times=");
-            Serial.println(rec.times);
+          Serial.print("  code=0x");
+          Serial.print(rec.code, HEX);
+          Serial.print(" times=");
+          Serial.println(rec.times);
+          SaveError(rec.code, rec.tfs, rec.addr, rec.times);
         }
     }
   }
@@ -312,6 +343,7 @@ uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
     return resp[0];
 }
 
+//deprecated
 void ScanModules(){
   return;
   for (int i=0; i<ModuleLen; i++) {
@@ -530,13 +562,13 @@ void TouchReleaseEvent(int page, int id){
 
 void SetPic(int id, int mode){
   Button& mod=GetBtn(id);
-  DisplaySetVal("pageSofa."+(mod.objName)+".pic", mod.modePic[mode]);
+  DisplaySetVal((mod.objName)+".pic", mod.modePic[mode]);
 }
 
 void ReqPic(int id){
   Button& mod=GetBtn(id);
   Serial.println(mod.objName);
-  mySerial.print("get pageSofa."+(mod.objName)+".pic");
+  mySerial.print("get "+(mod.objName)+".pic");
   comandEnd();
   QueueOfRequests[QueueOfRequestsLen]=id;
   QueueOfRequestsLen++;
@@ -617,8 +649,8 @@ Color Rgb565ToRgb(uint16_t rgb565)
 
 
 
-Button& GetBtn(int id){
-  int len=6;
+Button& GetBtn(byte id){
+  byte len=btnLen;
   while(len>0)
   {
     len--;
@@ -629,8 +661,8 @@ Button& GetBtn(int id){
   return btns[0];
 }
 
-Module& GetModule(int type){
-  int len=3;
+Module& GetModule(byte type){
+  byte len=ModuleLen;
   while(len>0)
   {
     len--;
@@ -638,13 +670,14 @@ Module& GetModule(int type){
       return mods[len];
   }
   Serial.println("out of array");
+  return mods[0];
 }
 
 void DisplaySetCharVal(const char* path, int val) {
-    mySerial.print(path);
-    mySerial.print("=");
-    mySerial.print(val);
-    comandEnd();
+  mySerial.print(path);
+  mySerial.print("=");
+  mySerial.print(val);
+  comandEnd();
 }
 
 
@@ -735,6 +768,28 @@ void SetupBtns(){
   btns[5].modePic[3]=0;
   btns[5].type=HeatType;
   btns[5].seat=1;
+
+  btns[6]={};
+  btns[6].id=5;
+  btns[6].objName="mv1";
+  btns[6].friendlyName="Vibro left";
+  btns[6].modePic[0]=24;
+  btns[6].modePic[1]=25;
+  btns[6].modePic[2]=26;
+  btns[6].modePic[3]=27;
+  btns[6].type=VibroType;
+  btns[6].seat=0;
+
+  btns[7]={};
+  btns[7].id=4;
+  btns[7].objName="mv2";
+  btns[7].friendlyName="Vibro right";
+  btns[7].modePic[0]=10;
+  btns[7].modePic[1]=11;
+  btns[7].modePic[2]=12;
+  btns[7].modePic[3]=13;
+  btns[7].type=VibroType;
+  btns[7].seat=1;
 }
 
 void SetupMods(){
@@ -753,6 +808,10 @@ void SetupMods(){
   mods[3].type=LightType;
   mods[3].addr=LIGHT_ADDR;
   mods[3].friendlyName="Атмосферная подсветка";
+
+  mods[4].type=VibroType;
+  mods[4].addr=VIBRO_ADDR;
+  mods[4].friendlyName="Вибромассаж";
 }
 
 void logS(String str){

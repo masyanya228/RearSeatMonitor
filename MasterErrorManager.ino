@@ -96,6 +96,7 @@ void SaveError(uint8_t code) {
 
 void SaveError(uint8_t code, uint32_t tfs, uint8_t addr, uint8_t times) {
   if (!IsErrorCodeAllowed(code)) {
+    SaveError(90+addr/10);
     if (isDebug) { Serial.print("Error code "); Serial.print(code); Serial.println(" not allowed"); }
     return;
   }

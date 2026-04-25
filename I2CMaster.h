@@ -3,10 +3,11 @@
 #include "i2c_protocol.h"
 
 // Адреса слейвов
-#define MASSAGE_ADDR     10
+#define MASSAGE_ADDR 10
 #define VENTILATION_ADDR 20
-#define HEAT_ADDR        30
-#define LIGHT_ADDR       40
+#define HEAT_ADDR 30
+#define LIGHT_ADDR 40
+#define VIBRO_ADDR 50
 extern bool isDebug;
 
 /**
