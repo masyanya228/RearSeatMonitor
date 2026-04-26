@@ -82,6 +82,17 @@ struct Button{
 byte btnLen=8;
 Button btns[8];
 
+bool firstShoted = false;
+struct LedCommand {
+  uint8_t el;
+  Color   rgb;
+  bool    pending;
+};
+
+static LedCommand    _ledBuf     = { 0, {0,0,0}, false };
+static unsigned long _lastLedSent = 0;
+static const unsigned long LED_THROTTLE_MS = 1000;
+
 //Ошибки в памяти
 struct Error{
   uint8_t code=0;
@@ -146,10 +157,10 @@ struct ErrorDesc {
 };
 
 const ErrorDesc errorDescriptions[] PROGMEM = {
-    {1, e10}, {11, e11}, {12, e12},
-    {2, e20},
-    {3, e30}, {31, e31}, {32, e32}, 
-    {4, e40}, {41, e41}, {42, e42}, {43, e43}, {44, e44}, {45, e45}, {46, e46}, {47, e47}, {48, e48}, {49, e49}, {60, e60}, {61, e61}, {62, e62}, {63, e63}, {64, e64}, {65, e65},
+    {1, e1}, {11, e11}, {12, e12},
+    {2, e2},
+    {3, e3}, {31, e31}, {32, e32}, 
+    {4, e4}, {41, e41}, {42, e42}, {43, e43}, {44, e44}, {45, e45}, {46, e46}, {47, e47}, {48, e48}, {49, e49}, {60, e60}, {61, e61}, {62, e62}, {63, e63}, {64, e64}, {65, e65},
     {5, e5}, {51, e51}, {52, e52},
     {91, e91}, {92, e92}, {93, e93}, {94, e94}, {95, e95},
     {0, nullptr}
@@ -173,6 +184,7 @@ void setup() {
 
 int endcombyte=0;
 void loop() {
+  FlushLedColorBuffer();
   if(mySerial.available()){ 
     byte inc = mySerial.read();
     Serial.println(inc);
@@ -298,6 +310,34 @@ void ApplyLedPower(uint8_t el, bool power) {
   uint8_t params[] = {el, power ? 1u : 0u};
   uint8_t resp[1];
   master.transaction(LIGHT_ADDR, REG_Power, params, sizeof(params), resp, 1);
+}
+
+void ApplyLedColorBuffered(uint8_t el, Color rgb) {
+  if (!firstShoted) {
+    uint8_t params[] = { el, rgb.r, rgb.g, rgb.b };
+    uint8_t resp[1];
+    master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
+    _lastLedSent = millis();
+    firstShoted=true;
+  } else {
+    _ledBuf = { el, rgb, true };
+  }
+}
+
+void FlushLedColorBuffer() {
+  if (!_ledBuf.pending)
+  {
+    if (firstShoted && millis() - _lastLedSent < LED_THROTTLE_MS)
+      firstShoted=false;
+    return;
+  }
+  if (millis() - _lastLedSent < LED_THROTTLE_MS) return;
+
+  uint8_t params[] = { _ledBuf.el, _ledBuf.rgb.r, _ledBuf.rgb.g, _ledBuf.rgb.b };
+  uint8_t resp[1];
+  master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
+  _lastLedSent    = millis();
+  _ledBuf.pending = false;
 }
 
 void ApplyLedColor(uint8_t el, Color rgb) {
@@ -436,7 +476,7 @@ void HandleLedPalitra(int data[], int len) {
   if (el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
     leds[LED_FLOOR].r = rgb.r; leds[LED_FLOOR].g = rgb.g; leds[LED_FLOOR].b = rgb.b;
   }
-  ApplyLedColor(el, rgb);
+  ApplyLedColorBuffered(el, rgb);
 }
 
 void HandleLedColor(int data[], int len) {
