@@ -17,13 +17,12 @@ void FirstInit(){
     if (code == 0) break;
 
     errors[i].code  = code;
-    errors[i].tfs   = 0;
     errors[i].times = 0;
     errors[i].addr  = 0;
     i++;
   }
   EEPROM.put(0, errors);        // сохраняем только разрешённые коды
-  if (isDebug) Serial.print("Initialized "); Serial.print(errLen); Serial.println(" error slots");
+  if (isDebug) {Serial.print("Initialized "); Serial.print(errLen); Serial.println(" error slots");}
 }
 
 String GetErrorDescription(uint8_t code) {
@@ -91,10 +90,10 @@ bool IsErrorCodeAllowed(uint8_t code) {
 }
 
 void SaveError(uint8_t code) {
-  SaveError(code, 0, 0, 0);
+  SaveError(code, 0, 0);
 }
 
-void SaveError(uint8_t code, uint32_t tfs, uint8_t addr, uint8_t times) {
+void SaveError(uint8_t code, uint8_t addr, uint8_t times) {
   if (!IsErrorCodeAllowed(code)) {
     SaveError(90+addr/10);
     if (isDebug) { Serial.print("Error code "); Serial.print(code); Serial.println(" not allowed"); }
@@ -109,27 +108,21 @@ void SaveError(uint8_t code, uint32_t tfs, uint8_t addr, uint8_t times) {
   else
     errors[i].times=times;
   errors[i].addr = addr;
-
-  if (errors[i].tfs == 0) {
-    errors[i].tfs = (tfs == 0) ? millis() : tfs;
-  }
   EEPROM.put(sizeErr * i, errors[i]);
 }
 
 void ClearAllErrors() {
   for (int i = 0; i < errLen; i++) {
-    errors[i].tfs   = 0;
     errors[i].times = 0;
     errors[i].addr  = 0;
   }
   EEPROM.put(0, errors);
-  if (isDebug) Serial.println(F("All errors cleared (times and tfs reset)"));
+  if (isDebug) Serial.println(F("All errors cleared. Times reseted"));
 }
 
 void ResetError(uint8_t code){
   int i = IndexOfError(code);
   if (i == -1) return;
-  errors[i].tfs=0;
   errors[i].times=0;
   errors[i].addr=0;
   EEPROM.put(sizeErr*i, errors[i]);

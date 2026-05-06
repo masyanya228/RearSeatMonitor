@@ -15,7 +15,8 @@ I2CMaster master;
 #define CMD_TOUCH 101 // OnPress onRelease
 #define CMD_GET_PIC 113 //Ответ на запрос картиинки
 #define CMD_LED_POWER 1 // Вкл/выкл [1, элемент LE, 0/1 LE] len=9
-#define CMD_LED_PALITRA 2 // Цвет с палитры [2, элемент LE, x LE, y LE] len=13
+#define CMD_LED_PALITRA 2 // Цвет с палитры [2, элемент LE, y LE] len=9
+#define CMD_LED_PALITRA_WHITE 8 // Цвет с палитры белого цвета [2, элемент LE, y LE] len=9
 #define CMD_LED_COLOR 3 // Цвет с пресета [3, элемент LE, RGB565 LE] len=9
 #define CMD_LED_BRIGHT 4 // Яркость [4, элемент LE, Br(0–100) LE] len=9
 #define CMD_LED_GETSTATE 5 // [5] len=1
@@ -96,11 +97,10 @@ static const unsigned long LED_THROTTLE_MS = 1000;
 //Ошибки в памяти
 struct Error{
   uint8_t code=0;
-  uint32_t tfs=0;
   uint8_t times=0;
   uint8_t addr=0;
 };
-Error errors[15];
+Error errors[31];
 int sizeErr;
 int errLen;
 int nextError=0;
@@ -249,7 +249,7 @@ void HealthReport() {
           Serial.print(rec.code, HEX);
           Serial.print(" times=");
           Serial.println(rec.times);
-          SaveError(rec.code, rec.tfs, rec.addr, rec.times);
+          SaveError(rec.code, rec.addr, rec.times);
         }
     }
   }
@@ -284,7 +284,7 @@ bool I2C_GetError(uint8_t slaveAddr, uint8_t index, Error& out) {
   auto res = master.transaction(slaveAddr, REG_GetNextError, &index, 1, resp, 7);
   if (res != I2CMaster::OK || resp[0] == 0) return false;
   out.code  = resp[1];
-  memcpy(&out.tfs, &resp[2], 4);
+  //tfs skip
   out.times = resp[6];
   return true;
 }
@@ -415,6 +415,7 @@ void ToDo(int data[], int len){
 
     case CMD_LED_POWER: HandleLedPower(data, len);      break;
     case CMD_LED_PALITRA: HandleLedPalitra(data, len);      break;
+    case CMD_LED_PALITRA_WHITE: HandleLedPalitraWhite(data, len);      break;
     case CMD_LED_COLOR: HandleLedColor(data, len);      break;
     case CMD_LED_BRIGHT: HandleLedBright(data, len); break;
     case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
@@ -460,13 +461,31 @@ void HandleLedPower(int data[], int len) {
 }
 
 void HandleLedPalitra(int data[], int len) {
-  if (len != 13) return;
+  if (len != 9) return;
 
   int el = data[1];
   if (el < 0 || el > 6) return;
-  uint16_t x = (uint16_t)(data[5] | (data[6] << 8));
-  uint16_t y = (uint16_t)(data[9] | (data[10] << 8));
-  Color rgb = HsvToRgb(x, y);
+  uint16_t y = (uint16_t)(data[5] | (data[6] << 8));
+  Color rgb = HsvToRgb(y);
+  if (el == LED_SKY || el == LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_SKY].r = rgb.r; leds[LED_SKY].g = rgb.g; leds[LED_SKY].b = rgb.b;
+  }
+  if (el == LED_LINES || el == LED_LINES_FLOOR || el == LED_SKY_LINES || el == LED_ALL) {
+    leds[LED_LINES].r = rgb.r; leds[LED_LINES].g = rgb.g; leds[LED_LINES].b = rgb.b;
+  }
+  if (el == LED_FLOOR || el == LED_LINES_FLOOR || el == LED_ALL) {
+    leds[LED_FLOOR].r = rgb.r; leds[LED_FLOOR].g = rgb.g; leds[LED_FLOOR].b = rgb.b;
+  }
+  ApplyLedColorBuffered(el, rgb);
+}
+
+void HandleLedPalitraWhite(int data[], int len) {
+  if (len != 9) return;
+
+  int el = data[1];
+  if (el < 0 || el > 6) return;
+  uint16_t y = (uint16_t)(data[5] | (data[6] << 8));
+  Color rgb = WarmToColor(y);
   if (el == LED_SKY || el == LED_SKY_LINES || el == LED_ALL) {
     leds[LED_SKY].r = rgb.r; leds[LED_SKY].g = rgb.g; leds[LED_SKY].b = rgb.b;
   }
@@ -555,17 +574,11 @@ void HandleGetErrors(int data[], int len){
 
   for (int i = 0; i < count; i++)
   {
-    uint32_t minutesAgo = 0;
-    if (pageErrors[i].tfs > 0) {
-      minutesAgo = (millis() - pageErrors[i].tfs) / 60000UL;   // минуты назад
-    }
-
     uint8_t code = pageErrors[i].code;
     auto desc = GetErrorDescription(pageErrors[i].code);
     String line = String(pageErrors[i].code) + "|" +
                   String(pageErrors[i].addr) + "|" +
                   String(pageErrors[i].times) + "|" +
-                  String(minutesAgo) + "|" +
                   desc;
 
     if (i > 0) payload += "\r";
@@ -620,37 +633,46 @@ int Snap(int n, int sn, int en, int min, int max) {
     return map(n, sn, en, min, max);
 }
 
-Color HsvToRgb(uint16_t x, uint16_t y) {
-  x=x-60;
+Color HsvToRgb(uint16_t y) {
   y=y-50;
   y=185-y;
-  x=Snap(x, 50, 135, 0, 185);
-  y=Snap(y, 50, 135, 0, 185);
-  // x: 0..184  → Hue 0..359
-  // y: 0..184  → Saturation 0.0 .. 1.0 (сверху белый, снизу яркий цвет)
+  //y=Snap(y, 50, 135, 0, 185);
 
-  float hue = (float)x * 360.0 / 184.0;   // переводим в градусы
-  float sat = (float)y / 184.0;           // 0.0 = белый, 1.0 = чистый цвет
-  float val = 1.0;                        // всегда максимальная яркость
+  float sat = 1.0;
+  float val = 1.0;
+  float hue = (float)y * 360.0 / 185.0;
 
-  // Стандартное преобразование HSV → RGB (0..255)
-  float c = val * sat;
+  float c  = val * sat;
   float x_ = c * (1.0 - fabs(fmod(hue / 60.0, 2.0) - 1.0));
-  float m = val - c;
+  float m  = val - c;
 
   float r = 0, g = 0, b = 0;
 
-  if      (hue < 60)  { r = c; g = x_; b = 0; }
-  else if (hue < 120) { r = x_; g = c; b = 0; }
-  else if (hue < 180) { r = 0; g = c; b = x_; }
-  else if (hue < 240) { r = 0; g = x_; b = c; }
-  else if (hue < 300) { r = x_; g = 0; b = c; }
-  else                { r = c; g = 0; b = x_; }
+  if      (hue < 60)  { r = c;  g = x_; b = 0;  }
+  else if (hue < 120) { r = x_; g = c;  b = 0;  }
+  else if (hue < 180) { r = 0;  g = c;  b = x_; }
+  else if (hue < 240) { r = 0;  g = x_; b = c;  }
+  else if (hue < 300) { r = x_; g = 0;  b = c;  }
+  else                { r = c;  g = 0;  b = x_; }
 
-  r = (r + m) * 255.0;
-  g = (g + m) * 255.0;
-  b = (b + m) * 255.0;
-  Color rgb = {r, g, b};
+  Color rgb;
+  rgb.r = (uint8_t)((r + m) * 255.0);
+  rgb.g = (uint8_t)((g + m) * 255.0);
+  rgb.b = (uint8_t)((b + m) * 255.0);
+  return rgb;
+}
+
+Color WarmToColor(uint8_t y) {
+  // y: число от 0 до 185
+  // 0   -> #c8e1ff = rgb(200, 225, 255)  холодный белый
+  // 185 -> #ffc882 = rgb(255, 200, 130)  тёплый белый
+  y=y-50;
+  float t = (float)y / 185.0;  // 0.0 .. 1.0
+
+  Color rgb;
+  rgb.r = (uint8_t)(200 + t * (255 - 200));
+  rgb.g = (uint8_t)(225 + t * (200 - 225));
+  rgb.b = (uint8_t)(255 + t * (130 - 255));
   return rgb;
 }
 
