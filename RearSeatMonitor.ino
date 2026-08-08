@@ -94,7 +94,7 @@ struct LedCommand {
 
 static LedCommand    _ledBuf     = { 0, {0,0,0}, false };
 static unsigned long _lastLedSent = 0;
-static const unsigned long LED_THROTTLE_MS = 1000;
+static const unsigned long LED_THROTTLE_MS = 500;
 
 //Ошибки в памяти
 struct Error{
@@ -189,7 +189,6 @@ void loop() {
   FlushLedColorBuffer();
   if(mySerial.available()){ 
     byte inc = mySerial.read();
-    Serial.println(inc);
     disPacket[disPacketPointer]=inc;
     disPacketPointer++;
     
@@ -305,9 +304,9 @@ byte NextMode(uint8_t slaveAddr, uint8_t seat) {
   uint8_t reg = (seat == 0) ? REG_L_MODE : REG_R_MODE;
   uint8_t resp[2];
   auto res = master.transaction(slaveAddr, reg, resp, 2);
-  Serial.println("res= "+String(res));
+  Serial.println("req="+String((res==0?"OK":"NotDelivered")));
   if (res != I2CMaster::OK) return 0xFF;  // ошибка
-  Serial.println("resp= "+String(resp[1]));
+  Serial.println("resp="+String(resp[1]));
   return resp[1];
 }
 
@@ -324,7 +323,9 @@ void ApplyLedColorBuffered(uint8_t el, Color rgb) {
     master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
     _lastLedSent = millis();
     firstShoted=true;
+    Serial.println("firstshoted");
   } else {
+    Serial.println("buffered");
     _ledBuf = { el, rgb, true };
   }
 }
@@ -332,12 +333,16 @@ void ApplyLedColorBuffered(uint8_t el, Color rgb) {
 void FlushLedColorBuffer() {
   if (!_ledBuf.pending)
   {
-    if (firstShoted && millis() - _lastLedSent < LED_THROTTLE_MS)
+    if (firstShoted && (millis() - _lastLedSent) > LED_THROTTLE_MS)
+    {
       firstShoted=false;
+      Serial.println("fs reseted"+String(millis() - _lastLedSent));
+    }
     return;
   }
   if (millis() - _lastLedSent < LED_THROTTLE_MS) return;
 
+  Serial.println("ColorChange");
   uint8_t params[] = { _ledBuf.el, _ledBuf.rgb.r, _ledBuf.rgb.g, _ledBuf.rgb.b };
   uint8_t resp[1];
   master.transaction(LIGHT_ADDR, REG_SetRGB, params, sizeof(params), resp, 1);
@@ -411,6 +416,12 @@ void ToDo(int data[], int len){
   Serial.print(endcombyte);
   Serial.print(" ");
   Serial.println(len);
+  for(int i=0; i<len; i++)
+  {
+    Serial.print(data[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
   switch (data[0]) {
     case CMD_TOUCH:
       if (len == 4) {
@@ -642,8 +653,9 @@ int Snap(int n, int sn, int en, int min, int max) {
 }
 
 Color HsvToRgb(uint16_t y) {
+  if(y<50) y=50;
   y=y-50;
-  y=185-y;
+  //y=185-y;
   //y=Snap(y, 50, 135, 0, 185);
 
   float sat = 1.0;
@@ -674,6 +686,7 @@ Color WarmToColor(uint8_t y) {
   // y: число от 0 до 185
   // 0   -> #c8e1ff = rgb(200, 225, 255)  холодный белый
   // 185 -> #ffc882 = rgb(255, 200, 130)  тёплый белый
+  if(y<50) y=50;
   y=y-50;
   float t = (float)y / 185.0;  // 0.0 .. 1.0
 
