@@ -34,6 +34,8 @@ struct LedElement {
   bool    on;
   uint8_t r, g, b;
   uint8_t br;  // 0–100
+  uint8_t colorCursor;
+  uint8_t whiteCursor;
 };
 
 struct Color{
@@ -234,6 +236,9 @@ void HealthReport() {
   {
     Serial.println(mods[m].friendlyName);
     bool ping=I2C_Ping(mods[m].addr);
+    continue;
+
+    //todo - delete
     if(!ping){
       SaveError(mods[m].addr/10);
       continue;
@@ -353,21 +358,22 @@ void ApplyLedBright(uint8_t el, uint8_t br) {
 }
 
 bool GetLedStatus() {
+  return false;
   Serial.println("GetLedStatus");
   uint8_t resp[16];
   auto res = master.transaction(LIGHT_ADDR, REG_GetLightStatus, resp, sizeof(resp));
   if (res != I2CMaster::OK) return false;
-  leds[0].on=resp[1];
+  leds[0].on=resp[1]==1;
   leds[0].r=resp[2];
   leds[0].g=resp[3];
   leds[0].b=resp[4];
   leds[0].br=resp[5];
-  leds[1].on=resp[6];
+  leds[1].on=resp[6]==1;
   leds[1].r=resp[7];
   leds[1].g=resp[8];
   leds[1].b=resp[9];
   leds[1].br=resp[10];
-  leds[2].on=resp[11];
+  leds[2].on=resp[11]==1;
   leds[2].r=resp[12];
   leds[2].g=resp[13];
   leds[2].b=resp[14];
@@ -544,12 +550,14 @@ void HandleLedBright(int data[], int len) {
 }
 
 void HandleLedGetState(int data[], int len){
+  return;
   Serial.println("HandleLedGetState");
   if(GetLedStatus()){
     Serial.println("HandleLedGetState->GetLedStatus");
     DisplaySetVal("pageMain.vaP1.val", leds[0].on);
     DisplaySetVal("pageMain.vaCol1.val", RgbToRgb565(leds[0].r, leds[0].g, leds[0].b));
     DisplaySetVal("pageMain.vaBr1.val", leds[0].br);
+    DisplaySetVal("pageMain.", leds[0].colorCursor);
 
     DisplaySetVal("pageMain.vaP2.val", leds[1].on);
     DisplaySetVal("pageMain.vaCol2.val", RgbToRgb565(leds[1].r, leds[1].g, leds[1].b));
@@ -857,23 +865,22 @@ void SetupBtns(){
 void SetupMods(){
   mods[0].type=MasType;
   mods[0].addr=MASSAGE_ADDR;
-  mods[0].friendlyName="Пневмомассаж спинки";
+  mods[0].friendlyName="Massage";
 
   mods[1].type=VentType;
   mods[1].addr=VENTILATION_ADDR;
-  mods[1].friendlyName="Вентиляция дивана";
+  mods[1].friendlyName="Ventilation";
 
   mods[2].type=HeatType;
   mods[2].addr=HEAT_ADDR;
-  mods[2].friendlyName="Обогрев дивана";
-
+  mods[2].friendlyName="Heat";
   mods[3].type=LightType;
   mods[3].addr=LIGHT_ADDR;
-  mods[3].friendlyName="Атмосферная подсветка";
+  mods[3].friendlyName="Ambient";
 
   mods[4].type=VibroType;
   mods[4].addr=VIBRO_ADDR;
-  mods[4].friendlyName="Вибромассаж";
+  mods[4].friendlyName="Vibro";
 }
 
 void logS(String str){
