@@ -96,83 +96,10 @@ static LedCommand    _ledBuf     = { 0, {0,0,0}, false };
 static unsigned long _lastLedSent = 0;
 static const unsigned long LED_THROTTLE_MS = 500;
 
-//Ошибки в памяти
-struct Error{
-  uint8_t code=0;
-  uint8_t times=0;
-  uint8_t addr=0;
-};
-Error errors[31];
-int sizeErr;
-int errLen;
-int nextError=0;
-
-/*
-1-9 connection error
-91-99 unknown error code
-10-19 massage errors
-20-29 vent errors
-30-39 heat errors
-40-49, 60-69 light errors
-50-59 vibro errors
-*/
-const char e1[] PROGMEM = "Massage didnt response";
-const char e2[] PROGMEM = "Vent didnt response";
-const char e3[] PROGMEM = "Heat didnt response";
-const char e4[] PROGMEM = "Light didnt response";
-const char e5[] PROGMEM = "Vibro didnt response";
-
-const char e11[] PROGMEM = "Left massage wrong state";
-const char e12[] PROGMEM = "Right massage wrong state";
-
-const char e31[] PROGMEM = "Left heat wrong state";
-const char e32[] PROGMEM = "Right heat wrong state";
-
-const char e41[] PROGMEM = "Light:Ambient not scannable";
-const char e42[] PROGMEM = "Light:StarSky not scannable";
-const char e43[] PROGMEM = "Light:Ambient has no target service";
-const char e44[] PROGMEM = "Light:StarSky has no target service";
-const char e45[] PROGMEM = "Light:Ambient has no target characteristic";
-const char e46[] PROGMEM = "Light:StarSky has no target characteristic";
-const char e47[] PROGMEM = "Light:Not supported i2c command";
-const char e48[] PROGMEM = "Light:Ambient has no services";
-const char e49[] PROGMEM = "Light:StarSky has no services";
-const char e60[] PROGMEM = "Light:Ambient has no characteristics";
-const char e61[] PROGMEM = "Light:StarSky has no characteristics";
-const char e62[] PROGMEM = "Light:Ambient still not ready to command";
-const char e63[] PROGMEM = "Light:StarSky still not ready to command";
-const char e64[] PROGMEM = "Light:Ambient bad response";
-const char e65[] PROGMEM = "Light:StarSky bad response";
-
-const char e51[] PROGMEM = "Left vibro wrong state";
-const char e52[] PROGMEM = "Right vibro wrong state";
-
-const char e91[] PROGMEM = "Massage unknown error code";
-const char e92[] PROGMEM = "Vent unknown error code";
-const char e93[] PROGMEM = "Heat unknown error code";
-const char e94[] PROGMEM = "Light unknown error code";
-const char e95[] PROGMEM = "Vibro unknown error code";
-
-struct ErrorDesc {
-    uint8_t code;
-    const char* description;
-};
-
-const ErrorDesc errorDescriptions[] PROGMEM = {
-    {1, e1}, {11, e11}, {12, e12},
-    {2, e2},
-    {3, e3}, {31, e31}, {32, e32}, 
-    {4, e4}, {41, e41}, {42, e42}, {43, e43}, {44, e44}, {45, e45}, {46, e46}, {47, e47}, {48, e48}, {49, e49}, {60, e60}, {61, e61}, {62, e62}, {63, e63}, {64, e64}, {65, e65},
-    {5, e5}, {51, e51}, {52, e52},
-    {91, e91}, {92, e92}, {93, e93}, {94, e94}, {95, e95},
-    {0, nullptr}
-};
-
 void setup() {
   delay(2000);
   Serial.begin(115200);
 
-  InitEEPROM();
   SetupBtns();
   SetupMods();
   
@@ -235,27 +162,6 @@ void HealthReport() {
   {
     Serial.println(mods[m].friendlyName);
     bool ping=I2C_Ping(mods[m].addr);
-    continue;
-
-    //todo - delete
-    if(!ping){
-      SaveError(mods[m].addr/10);
-      continue;
-    }
-    uint8_t count = I2C_GetErrorCount(mods[m].addr);
-    if (count == 0) { Serial.println("[HEALTH] Ошибок нет"); continue;}
-    Serial.print("[HEALTH] Ошибок: ");
-    Serial.println(count);
-    for (uint8_t i = 0; i < count; i++) {
-        Error rec;
-        if (I2C_GetError(mods[m].addr, i, rec)) {
-          Serial.print("  code=0x");
-          Serial.print(rec.code, HEX);
-          Serial.print(" times=");
-          Serial.println(rec.times);
-          SaveError(rec.code, rec.addr, rec.times);
-        }
-    }
   }
 }
 
@@ -269,34 +175,6 @@ bool I2C_Ping(uint8_t slaveAddr) {
   }
   Serial.println(F("[I2C] Ping OK"));
   return true;
-}
-
-uint8_t I2C_GetErrorCount(uint8_t slaveAddr) {
-  Serial.println("I2C_GetErrorCount");
-  uint8_t resp[2] = {0, 0};
-  auto res = master.transaction(slaveAddr, REG_GetErrorCount, resp, sizeof(resp));
-  if (res != I2CMaster::OK) {
-      Serial.print(F("[I2C] GetErrorCount FAIL: "));
-      Serial.println(I2CMaster::resultStr(res));
-      return 0;
-  }
-  return resp[1];
-}
-
-bool I2C_GetError(uint8_t slaveAddr, uint8_t index, Error& out) {
-  uint8_t resp[7];
-  auto res = master.transaction(slaveAddr, REG_GetNextError, &index, 1, resp, 7);
-  if (res != I2CMaster::OK || resp[0] == 0) return false;
-  out.code  = resp[1];
-  //tfs skip
-  out.times = resp[6];
-  return true;
-}
-
-bool I2C_ClearErrors(uint8_t slaveAddr) {
-  uint8_t resp[1];
-  auto res = master.transaction(slaveAddr, REG_ClearErrors, resp, 1);
-  return res == I2CMaster::OK && resp[0] == 0x01;
 }
 
 byte NextMode(uint8_t slaveAddr, uint8_t seat) {
@@ -436,8 +314,6 @@ void ToDo(int data[], int len){
     case CMD_LED_COLOR: HandleLedColor(data, len);      break;
     case CMD_LED_BRIGHT: HandleLedBright(data, len); break;
     case CMD_LED_GETSTATE: HandleLedGetState(data, len);   break;
-    case CMD_GET_ERRORS: HandleGetErrors(data, len); break;
-    case CMD_CLEAR_ERRORS: HandleClearErrors(data, len); break;
     default:
       Serial.print("[WARN] Неизвестная команда: ");
       Serial.println(data[0]);
@@ -578,41 +454,6 @@ void HandleLedGetState(int data[], int len){
     DisplaySetVal("pageMain.vaCol3.val", RgbToRgb565(leds[2].r, leds[2].g, leds[2].b));
     DisplaySetVal("pageMain.vaBr3.val", leds[2].br);
   }
-}
-
-void HandleGetErrors(int data[], int len){
-  Serial.print("HandleGetErrors ");
-  if (len < 5) return;
-  int page = data[1];
-  Serial.println("page #"+String(page));
-  const int limit = 8;                    // например, по 5 ошибок на "страницу"
-  Error pageErrors[limit];                // временный массив для текущей страницы
-  int count = GetErrors(page, limit, pageErrors);
-  Serial.print("count #"+String(count));
-  String payload = "";                    // сюда собираем все ошибки
-
-  for (int i = 0; i < count; i++)
-  {
-    uint8_t code = pageErrors[i].code;
-    auto desc = GetErrorDescription(pageErrors[i].code);
-    String line = String(pageErrors[i].code) + "|" +
-                  String(pageErrors[i].addr) + "|" +
-                  String(pageErrors[i].times) + "|" +
-                  desc;
-
-    if (i > 0) payload += "\r";
-    payload += line;
-  }
-  if (count == 0) {
-    payload = "0|0|0|0|No errors on this page";
-  }
-  DisplaySetTxt("pageHR.t1.txt", payload);
-}
-
-void HandleClearErrors(int data[], int len){
-  if (len < 1) return;
-  ClearAllErrors();
-  DisplaySetTxt("pageHR.t1.txt", "");
 }
 
 void TouchPressEvent(int page, int id){
