@@ -5,14 +5,14 @@
 #define REG_L_GetStatus 0x02
 #define REG_R_MODE 0x03
 #define REG_R_GetStatus 0x04
-#define REG_Power 0x10
-#define REG_SetRGB 0x11
-#define REG_SetBR 0x12
-#define REG_GetLightStatus 0x13
 #define REG_GetErrorCount 0x05
 #define REG_GetNextError 0x06
 #define REG_ClearErrors 0x07
 #define REG_PING 0x08
+#define REG_Power 0x10
+#define REG_SetRGB 0x11
+#define REG_SetBR 0x12
+#define REG_GetLightStatus 0x13
 
 // Статусные байты (первый байт любого ответа)
 #define STATUS_BUSY          0xFF  // слейв ещё не готов

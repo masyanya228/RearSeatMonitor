@@ -93,8 +93,8 @@ struct LedCommand {
 };
 
 static LedCommand    _ledBuf     = { 0, {0,0,0}, false };
-static unsigned long _lastLedSent = 0;
-static const unsigned long LED_THROTTLE_MS = 500;
+static uint32_t _lastLedSent = 0;
+static const uint32_t LED_THROTTLE_MS = 500;
 
 void setup() {
   delay(2000);
@@ -295,20 +295,6 @@ uint8_t GetStatus(uint8_t slaveAddr, uint8_t seat) {
     return resp[0];
 }
 
-//deprecated
-void ScanModules(){
-  return;
-  for (int i=0; i<ModuleLen; i++) {
-    Wire.beginTransmission(mods[i].addr);
-    if (Wire.endTransmission()) {
-      mods[i].isOnline=false;
-      SaveError(mods[i].addr+0);
-    } else {
-      mods[i].isOnline=true;
-    }
-  }
-}
-
 //UART comands
 void ToDo(int data[], int len){
   if(len==0)
@@ -485,7 +471,7 @@ void TouchPressEvent(int page, int id){
 
   Button& btn=GetBtn(id);
   Module& mod=GetModule(btn.type);
-  byte newMode =NextMode(mod.addr, btn.seat);
+  byte newMode=NextMode(mod.addr, btn.seat);
   btn.mode=newMode;
   char cmd[16];
   snprintf(cmd, sizeof(cmd), "%s.pic", btn.objName.c_str());
@@ -751,6 +737,7 @@ void SetupMods(){
   mods[2].type=HeatType;
   mods[2].addr=HEAT_ADDR;
   mods[2].friendlyName="Heat";
+
   mods[3].type=LightType;
   mods[3].addr=LIGHT_ADDR;
   mods[3].friendlyName="Ambient";

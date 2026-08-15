@@ -10,24 +10,6 @@
 #define VIBRO_ADDR 50
 extern bool isDebug;
 
-/**
- * I2CMaster — класс для Arduino Nano в роли I2C мастера
- * Поддерживает несколько слейвов на одной шине.
- *
- * Использование:
- *   I2CMaster master;
- *
- *   void setup() {
- *     master.begin();
- *   }
- *
- *   void loop() {
- *     uint8_t resp[1];
- *     master.transaction(LIGHT_ADDR, REG_PING, resp, 1);
- *     master.transaction(HEAT_ADDR,  REG_PING, resp, 1);
- *   }
- */
-
 class I2CMaster {
 public:
 
@@ -54,23 +36,41 @@ public:
     // resp     — буфер для ответа
     // respLen  — ожидаемая длина ответа (без CRC)
     Result transaction(uint8_t addr, uint8_t reg,
-                       const uint8_t* params, uint8_t paramLen,
-                       uint8_t* resp, uint8_t respLen) {
+                   const uint8_t* params, uint8_t paramLen,
+                   uint8_t* resp, uint8_t respLen) {
         Result lastErr = ERR_NACK;
-        for (uint8_t attempt = 1; attempt <= I2C_RETRY_COUNT; attempt++) {
+        const __FlashStringHelper* failedStep = F("send");
+        uint8_t attempt = 1;
+
+        for (; attempt <= I2C_RETRY_COUNT; attempt++) {
             if (attempt > 1) delay(I2C_RETRY_DELAY_MS);
 
             lastErr = _send(addr, reg, params, paramLen);
-            if (lastErr != OK) continue;
+            if (lastErr != OK) { failedStep = F("send"); continue; }
 
             lastErr = _waitReady(addr);
-            if (lastErr != OK) continue;
+            if (lastErr != OK) { failedStep = F("waitReady"); continue; }
 
             lastErr = _readData(addr, resp, respLen);
-            if (lastErr != OK) continue;
+            if (lastErr != OK) { failedStep = F("readData"); continue; }
 
             return OK;
         }
+
+        Serial.print(F("[I2C] addr="));
+        Serial.print(addr);
+        Serial.print(F(" reg="));
+        Serial.print(reg);
+        Serial.print(F(" step="));
+        Serial.print(failedStep);
+        Serial.print(F(" -> "));
+        Serial.print(resultStr(lastErr));
+        Serial.print(F(" (попытка "));
+        Serial.print(attempt - 1);
+        Serial.print(F(" из "));
+        Serial.print(I2C_RETRY_COUNT);
+        Serial.println(F(")"));
+
         return lastErr;
     }
 
