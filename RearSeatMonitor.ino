@@ -151,6 +151,29 @@ void loop() {
       DisplaySetVal("pageSofa.m1.pic", 18);
     } else if (command == "setpic1") {
       DisplaySetVal("pageSofa.m1.pic", 19);
+    } else {
+      HandleModCommand(command, "heat");
+      HandleModCommand(command, "vent");
+      HandleModCommand(command, "massage");
+      HandleModCommand(command, "vibro");
+    }
+  }
+}
+
+void HandleModCommand(const String &command, const String &prefix) {
+  if (command != prefix + "0" && command != prefix + "1") return;
+
+  for (uint8_t i = 0; i < sizeof(mods) / sizeof(mods[0]); i++) {
+    String name = mods[i].friendlyName;
+    name.toLowerCase();
+    if (name == prefix) {
+      uint8_t seat = command.endsWith("1") ? 1 : 0;
+      byte mode = NextMode(mods[i].addr, seat);
+      Serial.print(mods[i].friendlyName);
+      Serial.print(" ");
+      Serial.print(seat == 0 ? "слева " : "справа ");
+      Serial.println(mode == 0 ? "выкл" : String(mode));
+      return;
     }
   }
 }
@@ -723,7 +746,7 @@ void SetupMods(){
 
   mods[1].type=VentType;
   mods[1].addr=VENTILATION_ADDR;
-  mods[1].friendlyName="Ventilation";
+  mods[1].friendlyName="Vent";
 
   mods[2].type=HeatType;
   mods[2].addr=HEAT_ADDR;
